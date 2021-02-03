@@ -1,0 +1,2 @@
+cp test.py /projects/
+repl ~ execfile("/projects/test.py")
