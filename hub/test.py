@@ -95,7 +95,7 @@ class Plotter:
     mm_per_degree = -0.025
     max_deg_per_s = 930 * 0.9  # use only 90% of motors maximum speed
     width_mm = 270
-    height_mm = 400
+    height_mm = 200
 
     def __init__(self):
         self.mc = MotorController(hub.port.B, hub.port.F)
@@ -110,54 +110,78 @@ class Plotter:
 
         run = True
 
-        for p in path:
-            print(self.geom.get_degree(p))
-            self.pc.next()
+        try:
+            while run:
+                point = self.pc.current_point()
+                [left_desired_deg, right_desired_deg] = self.geom.get_degree(point)
+                [left_pos, right_pos] = self.mc.get_pos()
 
-        while run:
-            point = self.pc.current_point()
-            [left_desired_deg, right_desired_deg] = self.geom.get_degree(point)
-            [left_pos, right_pos] = self.mc.get_pos()
+                left_error_deg = left_desired_deg - (left_pos + p0[0])
+                right_error_deg = right_desired_deg - (right_pos + p0[1])
 
-            left_error_deg = left_desired_deg - (left_pos + p0[0])
-            right_error_deg = right_desired_deg - (right_pos + p0[1])
+                if min(abs(left_error_deg), abs(right_error_deg)) < 30:
+                    # consider point reached
+                    if self.pc.has_next():
+                        self.pc.next()
+                        # print("Next point", self.pc.current_point())
+                        continue
+                    else:
+                        run = False
+                        continue
 
-            if min(abs(left_error_deg), abs(right_error_deg)) < 5:
-                # consider point reached
-                if self.pc.has_next():
-                    self.pc.next()
-                    # print("Next point", self.pc.current_point())
-                    continue
+                if abs(left_error_deg) > abs(right_error_deg):
+                    left_deg_per_s = math.copysign(self.max_deg_per_s, left_error_deg)
+                    right_deg_per_s = right_error_deg / abs(left_error_deg) * self.max_deg_per_s
                 else:
-                    run = False
-                    continue
+                    right_deg_per_s = math.copysign(self.max_deg_per_s, right_error_deg)
+                    left_deg_per_s = left_error_deg / abs(right_error_deg) * self.max_deg_per_s
 
-            if abs(left_error_deg) > abs(right_error_deg):
-                left_deg_per_s = math.copysign(self.max_deg_per_s, left_error_deg)
-                right_deg_per_s = right_error_deg / abs(left_error_deg) * self.max_deg_per_s
-            else:
-                right_deg_per_s = math.copysign(self.max_deg_per_s, right_error_deg)
-                left_deg_per_s = left_error_deg / abs(right_error_deg) * self.max_deg_per_s
+                # self.mc.set_degree_per_second(0, 0)
+                # print("Desired", self.geom.get_degree(point), "p0", p0, "current", self.mc.get_pos())
+                # print("Point", point, "left error", left_error_deg, "right error", right_error_deg)
+                # print("Power", left_deg_per_s, right_deg_per_s)
 
-            # self.mc.set_degree_per_second(0, 0)
-            # print("Desired", self.geom.get_degree(point), "p0", p0, "current", self.mc.get_pos())
-            # print("Point", point, "left error", left_error_deg, "right error", right_error_deg)
-            # print("Power", left_deg_per_s, right_deg_per_s)
+                self.mc.set_degree_per_second(left_deg_per_s, right_deg_per_s)
+                # time.sleep_ms(100)
 
-            self.mc.set_degree_per_second(left_deg_per_s, right_deg_per_s)
-            # time.sleep_ms(100)
+        except Exception as e:
+            print("Caught exception", e)
 
-        # finished drawing, stop
+        # finished drawing or exception, stop
         self.mc.set_degree_per_second(0, 0)
 
 
 path = [
     [0, 0],
     [1, 0],
-    [0, 1],
     [1, 1],
-    [0, 0]
+
+    [0.5, 1],
+    [0.16, 0.63],
+    [0.11, 0.5],
+    [0.13, 0.37],
+    [0.17, 0.26],
+    [0.24, 0.19],
+    [0.34, 0.17],
+    [0.41, 0.18],
+    [0.45, 0.21],
+    [0.47, 0.26],
+    [0.5, 0.3],
+    [0.53, 0.26],
+    [0.55, 0.21],
+    [0.59, 0.18],
+    [0.66, 0.17],
+    [0.76, 0.19],
+    [0.83, 0.26],
+    [0.87, 0.37],
+    [0.89, 0.5],
+    [0.84, 0.63],
+    [0.5, 1],
+
+    [0, 1],
+    [0, 0],
 ]
+# path = [[x, 1 - y] for [x, y] in path]
 
 plotter = Plotter()
 plotter.draw(path)
