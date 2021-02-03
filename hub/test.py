@@ -3,10 +3,6 @@ import math
 import hub
 
 
-def clamp(value, min_value, max_value):
-    return min(max(round(value), min_value), max_value)
-
-
 class Geom:
     """
     Calculates motor positions for coordinates
@@ -123,7 +119,6 @@ class Plotter:
                     # consider point reached
                     if self.pc.has_next():
                         self.pc.next()
-                        # print("Next point", self.pc.current_point())
                         continue
                     else:
                         run = False
@@ -136,13 +131,7 @@ class Plotter:
                     right_deg_per_s = math.copysign(self.max_deg_per_s, right_error_deg)
                     left_deg_per_s = left_error_deg / abs(right_error_deg) * self.max_deg_per_s
 
-                # self.mc.set_degree_per_second(0, 0)
-                # print("Desired", self.geom.get_degree(point), "p0", p0, "current", self.mc.get_pos())
-                # print("Point", point, "left error", left_error_deg, "right error", right_error_deg)
-                # print("Power", left_deg_per_s, right_deg_per_s)
-
                 self.mc.set_degree_per_second(left_deg_per_s, right_deg_per_s)
-                # time.sleep_ms(100)
 
         except Exception as e:
             print("Caught exception", e)
@@ -185,44 +174,3 @@ path = [
 
 plotter = Plotter()
 plotter.draw(path)
-
-# lastTime = time.ticks_ms()
-# lastPos = hub.port.E.motor.get()[1]
-# nextPrint = lastTime + 1000
-#
-# pid = PID(0.00098, 0.002, 0)
-# last_ticks_us = time.ticks_us()
-#
-# last_abs_pos = hub.port.E.motor.get()[1]
-# pwm = 0
-# rolling_avg = 0
-# while True:
-#
-#     ticks_us = time.ticks_us()
-#     dt = time.ticks_diff(ticks_us, last_ticks_us) * 0.000001
-#     last_ticks_us = ticks_us
-#
-#     setpoint_dps = 500
-#
-#     abs_pos = hub.port.E.motor.get()[1]
-#     dps = hub.port.E.motor.get()[0] * 9.3
-#     last_abs_pos = abs_pos
-#
-#     if rolling_avg == 0:
-#         rolling_avg = dps
-#     rolling_avg = rolling_avg * 0.99 + 0.01 * dps
-#
-#     feedback = pid.process(setpoint_dps, dps, dt)
-#     pwm += feedback
-#     hub.port.E.motor.pwm(clamp(pwm + feedback, -100, 100))
-#     # hub.port.E.motor.run_at_speed(round(setpoint_dps / 9.3))
-#
-#     if (time.ticks_ms() > nextPrint):
-#         now = time.ticks_ms()
-#         nextPrint = now + 1000
-#         nowPos = hub.port.E.motor.get()[1]
-#         lasttimeFrameDps = (nowPos - lastPos) / ((now - lastTime) / 1000)
-#         speed = hub.port.E.motor.get()[0]
-#         print("dps:", lasttimeFrameDps, "rolling avg", rolling_avg)
-#         lastTime = now
-#         lastPos = nowPos
