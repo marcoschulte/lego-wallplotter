@@ -90,7 +90,7 @@ class PathController:
 class Plotter:
     mm_per_degree = -0.025
     max_deg_per_s = 930 * 0.9  # use only 90% of motors maximum speed
-    width_mm = 270
+    width_mm = 300
     height_mm = 200
 
     def __init__(self):
@@ -115,7 +115,9 @@ class Plotter:
                 left_error_deg = left_desired_deg - (left_pos + p0[0])
                 right_error_deg = right_desired_deg - (right_pos + p0[1])
 
-                if min(abs(left_error_deg), abs(right_error_deg)) < 30:
+                error = math.sqrt(left_error_deg ** 2 + right_error_deg ** 2)
+
+                if error < 30:
                     # consider point reached
                     if self.pc.has_next():
                         self.pc.next()
@@ -168,6 +170,14 @@ path = [
     [0.5, 1],
 
     [0, 1],
+    [0, 0],
+]
+
+path = [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
     [0, 0],
 ]
 # path = [[x, 1 - y] for [x, y] in path]
