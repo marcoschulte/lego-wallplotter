@@ -3,37 +3,66 @@ import math
 import hub
 
 
-class Geom:
-    """
-    Calculates motor positions for coordinates
-    Needs
-        distance d between two anchors
-        an offset of x and y where (0,0) should be relative to the left anchor
-        the width and height in mm of the canvas
-        how many degrees to we need per mm of rope
-    """
+class Constants:
+    POWER_PER_DEGREE_PER_SECOND = 1 / 9.3  # factor to convert from desired deg/s to power that needs to be applied
+    MM_PER_DEGREE = -0.025  # how much does the rope length change per degree rotation of the motor
+    POWER_MAX_PERCENTAGE = 0.9  # use only XX% of available motors power
+    MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
+    POINT_REACHED_ACCURACY_MM = 0.8  # how close (in mm) do we need to be at a point to consider it reached
 
-    def __init__(self, d, offset_x, offset_y, width, height, degree_per_mm):
+
+class Config:
+    def get_startpos_relative_to_canvas(self):
+        """
+        :return: The starting position of the robot on the canvas
+        """
+        return [0, 0]
+
+    def get_canvas_dim(self):
+        """
+        :return: The canvas' dimension (width, height) in mm
+        """
+        return [300, 200]
+
+    def get_anchor_distance(self):
+        """
+        :return: The distance between the two rope anchors
+        """
+        return 790
+
+    def get_canvas_offset(self):
+        """
+        :return: The translation of the canvas coordinate system relative to the left anchor
+        """
+        return [290, 640]
+
+
+class Geom:
+    def __init__(self, d, offset, canvas_dim, degree_per_mm):
+        """
+        Calculates motor positions for coordinates
+        :param d: distance d between two anchors
+        :param offset: offset [x, y] of the canvas relative to the left anchor
+        :param canvas_dim: dimensions of the canvas
+        :param degree_per_mm: how many degrees do the motors need to turn for one mm
+        """
         self.d = d
-        self.offset_x = offset_x
-        self.offset_y = offset_y
-        self.width = width
-        self.height = height
+        self.offset = offset
+        self.canvas_dim = canvas_dim
         self.degree_per_mm = degree_per_mm
 
     def get_degree(self, point):
         x = point[0]
         y = point[1]
         l = math.sqrt(
-            (x * self.width + self.offset_x) ** 2 + (y * self.height + self.offset_y) ** 2) * self.degree_per_mm
-        r = math.sqrt((self.d - self.offset_x - x * self.width) ** 2 + (
-                y * self.height + self.offset_y) ** 2) * self.degree_per_mm
+            (x * self.canvas_dim[0] + self.offset[0]) ** 2 + (
+                    y * self.canvas_dim[1] + self.offset[1]) ** 2) * self.degree_per_mm
+        r = math.sqrt((self.d - self.offset[0] - x * self.canvas_dim[0]) ** 2 + (
+                y * self.canvas_dim[1] + self.offset[1]) ** 2) * self.degree_per_mm
         return [l, r]
 
 
 class MotorController:
-    POWER_PER_DEGREE_PER_SECOND = 1 / 9.3
-
     def __init__(self, port_left, port_right):
         self.port_left = port_left
         self.port_right = port_right
@@ -50,16 +79,15 @@ class MotorController:
                 self.port_right.motor.get()[1] - self.start_pos_right]
 
     def set_degree_per_second(self, left, right):
-        self.port_left.pwm(round(left * self.POWER_PER_DEGREE_PER_SECOND))
-        self.port_right.pwm(round(right * self.POWER_PER_DEGREE_PER_SECOND))
+        self.port_left.pwm(round(left * Constants.POWER_PER_DEGREE_PER_SECOND))
+        self.port_right.pwm(round(right * Constants.POWER_PER_DEGREE_PER_SECOND))
 
 
 class PathController:
     min_steps_per_mm = 1
 
-    def __init__(self, width_mm, height_mm):
-        self.width_mm = width_mm
-        self.height_mm = height_mm
+    def __init__(self, canvas_dim):
+        self.canvas_dim = canvas_dim
         self.interpolated = []
         self.idx = 0
 
@@ -71,7 +99,7 @@ class PathController:
             p0 = self.interpolated[-1]
             dx = (p1[0] - p0[0])
             dy = (p1[1] - p0[1])
-            d = math.sqrt((dx * self.width_mm) ** 2 + (dy * self.height_mm) ** 2)
+            d = math.sqrt((dx * self.canvas_dim[0]) ** 2 + (dy * self.canvas_dim[1]) ** 2)
             needed_points_for_distance = math.ceil(d * self.min_steps_per_mm)
             for j in range(1, needed_points_for_distance + 1):
                 self.interpolated.append([p0[0] + dx * j / needed_points_for_distance,
@@ -88,21 +116,19 @@ class PathController:
 
 
 class Plotter:
-    mm_per_degree = -0.025
-    max_deg_per_s = 930 * 0.9  # use only 90% of motors maximum speed
-    width_mm = 300
-    height_mm = 200
+    point_reached_error_threshold = abs(Constants.POINT_REACHED_ACCURACY_MM / Constants.MM_PER_DEGREE)
 
     def __init__(self):
+        self.config = Config()
         self.mc = MotorController(hub.port.B, hub.port.F)
-        self.geom = Geom(790, 290, 640, self.width_mm, self.height_mm, (1 / self.mm_per_degree))
-        self.pc = PathController(self.width_mm, self.height_mm)
+        self.geom = Geom(self.config.get_anchor_distance(), self.config.get_canvas_offset(),
+                         self.config.get_canvas_dim(), (1 / Constants.MM_PER_DEGREE))
+        self.pc = PathController(self.config.get_canvas_dim())
 
     def draw(self, path):
         self.pc.load_path(path)
         self.mc.preset()
-        # assume we start at (0,0) on our canvas. Canvas (0,0) is relative to left anchor at (offset_x, offset_y)
-        p0 = self.geom.get_degree([0, 0])
+        p0 = self.geom.get_degree(self.config.get_startpos_relative_to_canvas())
 
         run = True
 
@@ -117,7 +143,7 @@ class Plotter:
 
                 error = math.sqrt(left_error_deg ** 2 + right_error_deg ** 2)
 
-                if error < 30:
+                if error < self.point_reached_error_threshold:
                     # consider point reached
                     if self.pc.has_next():
                         self.pc.next()
@@ -127,11 +153,11 @@ class Plotter:
                         continue
 
                 if abs(left_error_deg) > abs(right_error_deg):
-                    left_deg_per_s = math.copysign(self.max_deg_per_s, left_error_deg)
-                    right_deg_per_s = right_error_deg / abs(left_error_deg) * self.max_deg_per_s
+                    left_deg_per_s = math.copysign(Constants.MAX_DEG_PER_S, left_error_deg)
+                    right_deg_per_s = right_error_deg / abs(left_error_deg) * Constants.MAX_DEG_PER_S
                 else:
-                    right_deg_per_s = math.copysign(self.max_deg_per_s, right_error_deg)
-                    left_deg_per_s = left_error_deg / abs(right_error_deg) * self.max_deg_per_s
+                    right_deg_per_s = math.copysign(Constants.MAX_DEG_PER_S, right_error_deg)
+                    left_deg_per_s = left_error_deg / abs(right_error_deg) * Constants.MAX_DEG_PER_S
 
                 self.mc.set_degree_per_second(left_deg_per_s, right_deg_per_s)
 
