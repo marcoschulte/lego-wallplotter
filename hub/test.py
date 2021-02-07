@@ -6,7 +6,7 @@ import hub
 class Constants:
     POWER_PER_DEGREE_PER_SECOND = 1 / 9.3  # factor to convert from desired deg/s to power that needs to be applied
     MM_PER_DEGREE = -0.025  # how much does the rope length change per degree rotation of the motor
-    POWER_MAX_PERCENTAGE = 0.9  # use only XX% of available motors power
+    POWER_MAX_PERCENTAGE = 1  # use only XX% of available motors power
     MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
     POINT_REACHED_ACCURACY_MM = 0.8  # how close (in mm) do we need to be at a point to consider it reached
 
