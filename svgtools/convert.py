@@ -24,14 +24,14 @@ min_y = math.inf
 max_y = -math.inf
 
 for path in paths:
-    length = path.length() / 5
+    length = math.ceil(path.length() / 5)
 
     path_result = []
     result.append(path_result)
 
     last_slope = math.inf
 
-    for p in range(0, math.floor(length) + 1):
+    for p in range(0, length + 1):
         coords = path.point(p / length)
         x = coords.real
         y = coords.imag
