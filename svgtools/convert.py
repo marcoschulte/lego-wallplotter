@@ -69,6 +69,11 @@ with open(args.out + '.py', 'w') as filehandle:
         filehandle.write("    ],\n")
     filehandle.write("]\n")
 
+with open(args.out + '.txt', 'w') as filehandle:
+    for path in result:
+        filehandle.writelines("%s,%s\n" % (point[0], point[1]) for point in path)
+        filehandle.write("\n")
+
 # create preview svg
 preview = []
 for path in result:
