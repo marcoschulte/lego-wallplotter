@@ -1,2 +1,3 @@
 cp test.py /projects/
+cp ../svgtools/out/bialetti2.txt /projects/path.txt
 repl ~ execfile("/projects/test.py")

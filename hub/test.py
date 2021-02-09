@@ -1,12 +1,13 @@
 import math
+import sys
 
 import hub
 
 
 class Constants:
     POWER_PER_DEGREE_PER_SECOND = 1 / 9.3  # factor to convert from desired deg/s to power that needs to be applied
-    MM_PER_DEGREE = -0.025  # how much does the rope length change per degree rotation of the motor
-    POWER_MAX_PERCENTAGE = 1  # use only XX% of available motors power
+    MM_PER_DEGREE = -3825 / 132757  # how much does the rope length change per degree rotation of the motor
+    POWER_MAX_PERCENTAGE = 0.9  # use only XX% of available motors power
     MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
     POINT_REACHED_ACCURACY_MM = 0.8  # how close (in mm) do we need to be at a point to consider it reached
 
@@ -22,19 +23,19 @@ class Config:
         """
         :return: The canvas' dimension (width, height) in mm
         """
-        return [300, 200]
+        return [60, 60]
 
     def get_anchor_distance(self):
         """
-        :return: The distance between the two rope anchors
+        :return: The distance between the two rope anchors in mm
         """
-        return 790
+        return 1065
 
     def get_canvas_offset(self):
         """
         :return: The translation of the canvas coordinate system relative to the left anchor
         """
-        return [290, 640]
+        return [140, 670]
 
 
 class Geom:
@@ -83,70 +84,130 @@ class MotorController:
         self.port_right.pwm(round(right * Constants.POWER_PER_DEGREE_PER_SECOND))
 
 
-class PathController:
+class PathReader:
+    def try_next_point(self):
+        pass
+
+    def current_point(self):
+        pass
+
+
+class PathListReader(PathReader):
+    def __init__(self, points):
+        self.points = points
+        self.idx = 0
+
+    def try_next_point(self):
+        self.idx += 1
+        return self.idx < len(self.points) - 1
+
+    def current_point(self):
+        return self.points[self.idx]
+
+
+class PathFileReader(PathReader):
     min_steps_per_mm = 1
 
     def __init__(self, canvas_dim):
         self.canvas_dim = canvas_dim
-        self.interpolated = []
-        self.idx = 0
+        self.reset()
 
-    def load_path(self, path):
-        self.interpolated = [path[0]]
-        self.idx = 0
+    def reset(self):
+        self._point_queue = []
+        self._last_point_in_path = None
+        self._has_next_path = False
+        self._eof = False
 
-        for p1 in path[1:]:
-            p0 = self.interpolated[-1]
-            dx = (p1[0] - p0[0])
-            dy = (p1[1] - p0[1])
+    def load_path(self, file):
+        self.reset()
+        self._fh = open(file, 'r')
+        self._has_next_path = True
+        self.__read_next_point()
+
+    def __read_next_point(self):
+        line = False
+        last_tell = self._fh.tell()
+
+        while line is False or len(line) == 0:
+            line = self._fh.readline().strip()
+            new_tell = self._fh.tell()
+            if last_tell == new_tell:
+                # reached eof
+                self._eof = True
+                return
+            else:
+                last_tell = new_tell
+
+            if len(line) == 0:
+                # start of new path or eof if linebreak is at end of file
+                self._last_point_in_path = None
+                self._has_next_path = True
+
+        p = [float(x) for x in line.split(",")]
+
+        to_add = []
+        if self._last_point_in_path is None:
+            to_add.append(p)
+        else:
+            p0 = self._last_point_in_path
+            dx = (p[0] - p0[0])
+            dy = (p[1] - p0[1])
             d = math.sqrt((dx * self.canvas_dim[0]) ** 2 + (dy * self.canvas_dim[1]) ** 2)
             needed_points_for_distance = math.ceil(d * self.min_steps_per_mm)
             for j in range(1, needed_points_for_distance + 1):
-                self.interpolated.append([p0[0] + dx * j / needed_points_for_distance,
-                                          p0[1] + dy * j / needed_points_for_distance])
+                to_add.append([p0[0] + dx * j / needed_points_for_distance,
+                               p0[1] + dy * j / needed_points_for_distance])
+
+        self._last_point_in_path = p
+        self._point_queue += to_add
 
     def current_point(self):
-        return self.interpolated[self.idx]
+        return self._point_queue[0]
 
-    def has_next(self):
-        return self.idx < len(self.interpolated) - 1
+    def has_next_path(self):
+        return self._has_next_path and self._eof is False
 
-    def next(self):
-        self.idx += 1
+    def try_next_point(self):
+        self._point_queue.pop(0)
+
+        if len(self._point_queue) == 0 and self._eof is False:
+            self.__read_next_point()
+
+        if self._has_next_path is True or self._eof is True:
+            return False
+
+        return len(self._point_queue) > 0
+
+    def next_path(self):
+        self._has_next_path = False
 
 
-class Plotter:
+class PathPlotter:
     point_reached_error_threshold = abs(Constants.POINT_REACHED_ACCURACY_MM / Constants.MM_PER_DEGREE)
 
-    def __init__(self):
-        self.config = Config()
-        self.mc = MotorController(hub.port.B, hub.port.F)
-        self.geom = Geom(self.config.get_anchor_distance(), self.config.get_canvas_offset(),
-                         self.config.get_canvas_dim(), (1 / Constants.MM_PER_DEGREE))
-        self.pc = PathController(self.config.get_canvas_dim())
+    def __init__(self, config: Config, mc: MotorController):
+        self.mc = mc
+        self.geom = Geom(config.get_anchor_distance(), config.get_canvas_offset(),
+                         config.get_canvas_dim(), (1 / Constants.MM_PER_DEGREE))
+        self.p0 = self.geom.get_degree(config.get_startpos_relative_to_canvas())
 
-    def draw(self, path):
-        self.pc.load_path(path)
-        self.mc.preset()
-        p0 = self.geom.get_degree(self.config.get_startpos_relative_to_canvas())
-
+    def plot_path(self, pr: PathReader):
         run = True
-
         try:
             while run:
-                point = self.pc.current_point()
+                point = pr.current_point()
                 [left_desired_deg, right_desired_deg] = self.geom.get_degree(point)
                 [left_pos, right_pos] = self.mc.get_pos()
 
-                left_error_deg = left_desired_deg - (left_pos + p0[0])
-                right_error_deg = right_desired_deg - (right_pos + p0[1])
+                left_error_deg = left_desired_deg - (left_pos + self.p0[0])
+                right_error_deg = right_desired_deg - (right_pos + self.p0[1])
 
                 error = math.sqrt(left_error_deg ** 2 + right_error_deg ** 2)
 
                 if error < self.point_reached_error_threshold:
                     # consider point reached
-                    if self.pc.has_next():
-                        self.pc.next()
+                    has_next = pr.try_next_point()
+                    if has_next:
                         continue
                     else:
                         run = False
@@ -163,50 +224,45 @@ class Plotter:
 
         except Exception as e:
             print("Caught exception", e)
+            self.mc.set_degree_per_second(0, 0)
+            sys.print_exception(e)
 
-        # finished drawing or exception, stop
+
+class Plotter:
+
+    def plot_file(self, file):
+        try:
+            config = Config()
+            self.mc = MotorController(hub.port.B, hub.port.F)
+            self.mc.preset()
+
+            pathPlotter = PathPlotter(config, self.mc)
+
+            pr = PathFileReader(config.get_canvas_dim())
+            pr.load_path(file)
+
+            path_count = 0
+
+            while pr.has_next_path():
+                pr.next_path()
+                path_count += 1
+
+                print('Plotting path #%s with start at %s. Moving to start...' % (path_count, pr.current_point()))
+                pathPlotter.plot_path(PathListReader([pr.current_point()]))
+                print('Start plotting of path')
+                pathPlotter.plot_path(pr)
+                print('End plotting of path')
+
+            print('Moving back to origin')
+            pathPlotter.plot_path(PathListReader([[0, 0]]))
+            print('Done.')
+
+        except Exception as e:
+            print("Caught exception", e)
+
+        # always stop motors, no matter if exception or not
         self.mc.set_degree_per_second(0, 0)
 
 
-path = [
-    [0, 0],
-    [1, 0],
-    [1, 1],
-
-    [0.5, 1],
-    [0.16, 0.63],
-    [0.11, 0.5],
-    [0.13, 0.37],
-    [0.17, 0.26],
-    [0.24, 0.19],
-    [0.34, 0.17],
-    [0.41, 0.18],
-    [0.45, 0.21],
-    [0.47, 0.26],
-    [0.5, 0.3],
-    [0.53, 0.26],
-    [0.55, 0.21],
-    [0.59, 0.18],
-    [0.66, 0.17],
-    [0.76, 0.19],
-    [0.83, 0.26],
-    [0.87, 0.37],
-    [0.89, 0.5],
-    [0.84, 0.63],
-    [0.5, 1],
-
-    [0, 1],
-    [0, 0],
-]
-
-path = [
-    [0, 0],
-    [1, 0],
-    [0, 1],
-    [1, 1],
-    [0, 0],
-]
-# path = [[x, 1 - y] for [x, y] in path]
-
 plotter = Plotter()
-plotter.draw(path)
+plotter.plot_file('/projects/path.txt')
