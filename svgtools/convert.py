@@ -24,22 +24,35 @@ min_y = math.inf
 max_y = -math.inf
 
 for path in paths:
-    length = path.length()
+    length = path.length() / 5
 
     path_result = []
     result.append(path_result)
 
-    for p in range(0, math.floor(length + 1)):
+    last_slope = math.inf
+
+    for p in range(0, math.floor(length) + 1):
         coords = path.point(p / length)
         x = coords.real
         y = coords.imag
+
+        should_replace = False
+        if len(path_result) > 0:
+            last_added = path_result[-1]
+            slope = math.atan2(y - last_added[1], x - last_added[0])
+            should_replace = math.isclose(slope, last_slope, rel_tol=1e-3)
+            if should_replace is False:
+                last_slope = slope
 
         min_x = min(min_x, x)
         max_x = max(max_x, x)
         min_y = min(min_y, y)
         max_y = max(max_y, y)
 
-        path_result.append([x, y])
+        if should_replace:
+            path_result[-1] = [x, y]
+        else:
+            path_result.append([x, y])
 
 # rescale to [0, 1]
 for path in result:
@@ -52,7 +65,7 @@ with open(args.out + '.py', 'w') as filehandle:
     filehandle.write("paths = [\n")
     for path in result:
         filehandle.write("    [\n")
-        filehandle.writelines("        [%s, %s]\n" % (point[0], point[1]) for point in path)
+        filehandle.writelines("        [%s, %s],\n" % (point[0], point[1]) for point in path)
         filehandle.write("    ],\n")
     filehandle.write("]\n")
 
