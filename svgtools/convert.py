@@ -24,15 +24,15 @@ min_y = math.inf
 max_y = -math.inf
 
 for path in paths:
-    length = math.ceil(path.length() / 5)
+    steps = math.ceil(path.length() / 5)
 
     path_result = []
     result.append(path_result)
 
     last_slope = math.inf
 
-    for p in range(0, length + 1):
-        coords = path.point(p / length)
+    for p in range(0, steps + 1):
+        coords = path.point(p / steps)
         x = coords.real
         y = coords.imag
 
@@ -60,7 +60,7 @@ for path in result:
         p[0] = round((p[0] - min_x) / max_x, n_digits)
         p[1] = round((p[1] - min_y) / max_y, n_digits)
 
-# write data
+# write data as python lists
 with open(args.out + '.py', 'w') as filehandle:
     filehandle.write("paths = [\n")
     for path in result:
