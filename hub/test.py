@@ -1,5 +1,6 @@
 import math
 import sys
+import time
 
 import hub
 
@@ -63,6 +64,28 @@ class Geom:
         return [l, r]
 
 
+class PenController:
+    pos_drawing = 0
+    pos_not_drawing = 180
+    speed = 30
+
+    def __init__(self, port):
+        self.port = port
+        self.port.motor.mode([(1, 0), (2, 2), (3, 1), (0, 0)])
+
+    def __move_to_pos_if_not_there(self, pos):
+        dif = pos - self.port.motor.get()[2]
+        if abs(dif) > 5:
+            self.port.motor.run_for_degrees(abs(dif), round(math.copysign(self.speed, dif)))
+            time.sleep(1)
+
+    def start_drawing(self):
+        self.__move_to_pos_if_not_there(self.pos_drawing)
+
+    def stop_drawing(self):
+        self.__move_to_pos_if_not_there(self.pos_not_drawing)
+
+
 class MotorController:
     def __init__(self, port_left, port_right):
         self.port_left = port_left
@@ -82,6 +105,9 @@ class MotorController:
     def set_degree_per_second(self, left, right):
         self.port_left.pwm(round(left * Constants.POWER_PER_DEGREE_PER_SECOND))
         self.port_right.pwm(round(right * Constants.POWER_PER_DEGREE_PER_SECOND))
+
+    def stop(self):
+        self.set_degree_per_second(0, 0)
 
 
 class PathReader:
@@ -193,39 +219,33 @@ class PathPlotter:
 
     def plot_path(self, pr: PathReader):
         run = True
-        try:
-            while run:
-                point = pr.current_point()
-                [left_desired_deg, right_desired_deg] = self.geom.get_degree(point)
-                [left_pos, right_pos] = self.mc.get_pos()
+        while run:
+            point = pr.current_point()
+            [left_desired_deg, right_desired_deg] = self.geom.get_degree(point)
+            [left_pos, right_pos] = self.mc.get_pos()
 
-                left_error_deg = left_desired_deg - (left_pos + self.p0[0])
-                right_error_deg = right_desired_deg - (right_pos + self.p0[1])
+            left_error_deg = left_desired_deg - (left_pos + self.p0[0])
+            right_error_deg = right_desired_deg - (right_pos + self.p0[1])
 
-                error = math.sqrt(left_error_deg ** 2 + right_error_deg ** 2)
+            error = math.sqrt(left_error_deg ** 2 + right_error_deg ** 2)
 
-                if error < self.point_reached_error_threshold:
-                    # consider point reached
-                    has_next = pr.try_next_point()
-                    if has_next:
-                        continue
-                    else:
-                        run = False
-                        continue
-
-                if abs(left_error_deg) > abs(right_error_deg):
-                    left_deg_per_s = math.copysign(Constants.MAX_DEG_PER_S, left_error_deg)
-                    right_deg_per_s = right_error_deg / abs(left_error_deg) * Constants.MAX_DEG_PER_S
+            if error < self.point_reached_error_threshold:
+                # consider point reached
+                has_next = pr.try_next_point()
+                if has_next:
+                    continue
                 else:
-                    right_deg_per_s = math.copysign(Constants.MAX_DEG_PER_S, right_error_deg)
-                    left_deg_per_s = left_error_deg / abs(right_error_deg) * Constants.MAX_DEG_PER_S
+                    run = False
+                    continue
 
-                self.mc.set_degree_per_second(left_deg_per_s, right_deg_per_s)
+            if abs(left_error_deg) > abs(right_error_deg):
+                left_deg_per_s = math.copysign(Constants.MAX_DEG_PER_S, left_error_deg)
+                right_deg_per_s = right_error_deg / abs(left_error_deg) * Constants.MAX_DEG_PER_S
+            else:
+                right_deg_per_s = math.copysign(Constants.MAX_DEG_PER_S, right_error_deg)
+                left_deg_per_s = left_error_deg / abs(right_error_deg) * Constants.MAX_DEG_PER_S
 
-        except Exception as e:
-            print("Caught exception", e)
-            self.mc.set_degree_per_second(0, 0)
-            sys.print_exception(e)
+            self.mc.set_degree_per_second(left_deg_per_s, right_deg_per_s)
 
 
 class Plotter:
@@ -233,6 +253,10 @@ class Plotter:
     def plot_file(self, file):
         try:
             config = Config()
+
+            pc = PenController(hub.port.D)
+            pc.stop_drawing()
+
             self.mc = MotorController(hub.port.B, hub.port.F)
             self.mc.preset()
 
@@ -249,9 +273,15 @@ class Plotter:
 
                 print('Plotting path #%s with start at %s. Moving to start...' % (path_count, pr.current_point()))
                 pathPlotter.plot_path(PathListReader([pr.current_point()]))
+
+                self.mc.stop()
                 print('Start plotting of path')
+                pc.start_drawing()
                 pathPlotter.plot_path(pr)
+
+                self.mc.stop()
                 print('End plotting of path')
+                pc.stop_drawing()
 
             print('Moving back to origin')
             pathPlotter.plot_path(PathListReader([[0, 0]]))
@@ -259,9 +289,10 @@ class Plotter:
 
         except Exception as e:
             print("Caught exception", e)
+            sys.print_exception(e)
 
         # always stop motors, no matter if exception or not
-        self.mc.set_degree_per_second(0, 0)
+        self.mc.stop()
 
 
 plotter = Plotter()
