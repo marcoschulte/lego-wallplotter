@@ -14,7 +14,8 @@ parser.add_argument('-p', '--precision', type=int, default=4, help='how many dec
 
 args = parser.parse_args()
 
-paths, attributes = svg2paths(args.file)
+discontinued_paths, attributes = svg2paths(args.file)
+paths = [continued_path for disc_path in discontinued_paths for continued_path in disc_path.continuous_subpaths()]
 n_digits = args.precision
 
 result = []
