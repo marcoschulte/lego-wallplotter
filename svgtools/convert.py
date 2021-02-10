@@ -64,23 +64,41 @@ for path in result:
         p[0] = round((p[0] - min_x) / max_x, n_digits)
         p[1] = round((p[1] - min_y) / max_y, n_digits)
 
+# sort paths by distance between end and start
+result_sorted = []
+while len(result) > 0:
+    if len(result_sorted) == 0:
+        result_sorted.append(result.pop())
+    else:
+        last_added = result_sorted[-1]
+
+
+        def distance_to_last(p):
+            return math.sqrt((last_added[-1][0] - p[0][0]) ** 2 + (last_added[-1][1] - p[0][1]) ** 2)
+
+
+        closest_path = sorted(result, key=distance_to_last)[0]
+
+        result_sorted.append(closest_path)
+        result.remove(closest_path)
+
 # write data as python lists
 with open(args.out + '.py', 'w') as filehandle:
     filehandle.write("paths = [\n")
-    for path in result:
+    for path in result_sorted:
         filehandle.write("    [\n")
         filehandle.writelines("        [%s, %s],\n" % (point[0], point[1]) for point in path)
         filehandle.write("    ],\n")
     filehandle.write("]\n")
 
 with open(args.out + '.txt', 'w') as filehandle:
-    for path in result:
+    for path in result_sorted:
         filehandle.writelines("%s,%s\n" % (point[0], point[1]) for point in path)
         filehandle.write("\n")
 
 # create preview svg
 preview = []
-for path in result:
+for path in result_sorted:
     preview_p = Path()
     preview.append(preview_p)
     p0 = path[0]
