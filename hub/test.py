@@ -24,7 +24,7 @@ class Config:
         """
         :return: The canvas' dimension (width, height) in mm
         """
-        return [60, 60]
+        return [364, 320]
 
     def get_anchor_distance(self):
         """
@@ -36,7 +36,7 @@ class Config:
         """
         :return: The translation of the canvas coordinate system relative to the left anchor
         """
-        return [140, 670]
+        return [241, 483]  # left rope: 540mm, right rope: 955mm
 
 
 class Geom:
@@ -73,8 +73,12 @@ class PenController:
         self.port = port
         self.port.motor.mode([(1, 0), (2, 2), (3, 1), (0, 0)])
 
-    def __move_to_pos_if_not_there(self, pos):
-        dif = pos - self.port.motor.get()[2]
+    def __move_to_pos_if_not_there(self, desired_pos):
+        dif = desired_pos - self.port.motor.get()[2]
+        if dif < -180:
+            dif += 360
+        if dif > 180:
+            dif -= 360
         if abs(dif) > 5:
             self.port.motor.run_for_degrees(abs(dif), round(math.copysign(self.speed, dif)))
             time.sleep(1)
@@ -106,8 +110,10 @@ class MotorController:
         self.port_left.pwm(round(left * Constants.POWER_PER_DEGREE_PER_SECOND))
         self.port_right.pwm(round(right * Constants.POWER_PER_DEGREE_PER_SECOND))
 
-    def stop(self):
+    def brake(self):
         self.set_degree_per_second(0, 0)
+        self.port_left.motor.brake()
+        self.port_right.motor.brake()
 
 
 class PathReader:
@@ -249,20 +255,18 @@ class PathPlotter:
 
 
 class Plotter:
+    def __init__(self):
+        self.config = Config()
+        self.pc = PenController(hub.port.D)
+        self.mc = MotorController(hub.port.B, hub.port.F)
+        self.mc.preset()
+        self.pathPlotter = PathPlotter(self.config, self.mc)
 
     def plot_file(self, file):
         try:
-            config = Config()
+            self.pc.stop_drawing()
 
-            pc = PenController(hub.port.D)
-            pc.stop_drawing()
-
-            self.mc = MotorController(hub.port.B, hub.port.F)
-            self.mc.preset()
-
-            pathPlotter = PathPlotter(config, self.mc)
-
-            pr = PathFileReader(config.get_canvas_dim())
+            pr = PathFileReader(self.config.get_canvas_dim())
             pr.load_path(file)
 
             path_count = 0
@@ -272,28 +276,34 @@ class Plotter:
                 path_count += 1
 
                 print('Plotting path #%s with start at %s. Moving to start...' % (path_count, pr.current_point()))
-                pathPlotter.plot_path(PathListReader([pr.current_point()]))
+                self.pathPlotter.plot_path(PathListReader([pr.current_point()]))
+                self.mc.brake()
+                # move to start again to compensate drifting
+                self.pathPlotter.plot_path(PathListReader([pr.current_point()]))
+                self.mc.brake()
 
-                self.mc.stop()
                 print('Start plotting of path')
-                pc.start_drawing()
-                pathPlotter.plot_path(pr)
+                self.pc.start_drawing()
+                self.pathPlotter.plot_path(pr)
+                self.mc.brake()
 
-                self.mc.stop()
                 print('End plotting of path')
-                pc.stop_drawing()
+                self.pc.stop_drawing()
 
             print('Moving back to origin')
-            pathPlotter.plot_path(PathListReader([[0, 0]]))
+            self.pathPlotter.plot_path(PathListReader([[0, 0]]))
             print('Done.')
 
-        except Exception as e:
+        except BaseException as e:
+            self.mc.brake()
             print("Caught exception", e)
             sys.print_exception(e)
+            self.pc.stop_drawing()
+            print("Motor pos", self.mc.get_pos())
 
-        # always stop motors, no matter if exception or not
-        self.mc.stop()
+        # stop motors
+        self.mc.brake()
 
 
 plotter = Plotter()
-plotter.plot_file('/projects/path.txt')
+plotter.plot_file('/projects/paul.txt')
