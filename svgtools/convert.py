@@ -27,6 +27,9 @@ max_y = -math.inf
 for path in paths:
     steps = math.ceil(path.length() / 5)
 
+    if steps == 0:
+        continue
+
     path_result = []
     result.append(path_result)
 
