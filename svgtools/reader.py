@@ -52,9 +52,13 @@ class PathReader:
             dy = (p[1] - p0[1])
             d = math.sqrt((dx * self.canvas_dim[0]) ** 2 + (dy * self.canvas_dim[1]) ** 2)
             needed_points_for_distance = math.ceil(d * self.min_steps_per_mm)
-            for j in range(1, needed_points_for_distance + 1):
-                to_add.append([p0[0] + dx * j / needed_points_for_distance,
-                               p0[1] + dy * j / needed_points_for_distance])
+
+            if needed_points_for_distance == 0:
+                to_add.append(p)
+            else:
+                for j in range(1, needed_points_for_distance + 1):
+                    to_add.append([p0[0] + dx * j / needed_points_for_distance,
+                                   p0[1] + dy * j / needed_points_for_distance])
 
         self._last_point_in_path = p
         self._point_queue += to_add
@@ -76,12 +80,16 @@ class PathReader:
 
 
 p = PathReader([2, 2])
-p.load_path('out/bialetti2.txt')
+p.load_path('out/yourtext.txt')
+
+idx = 0
 
 while p.has_next_path():
     p.next_path()
 
-    print('Start of path')
+    idx += 1
+
+    print('Start of path', idx)
     while p.has_next_point():
         print('    ' + str(p.next_point()))
     print('End of path\n')

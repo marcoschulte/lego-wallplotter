@@ -24,7 +24,8 @@ class Config:
         """
         :return: The canvas' dimension (width, height) in mm
         """
-        return [364, 320]
+        # return [364, 320]
+        return [334, 334]
 
     def get_anchor_distance(self):
         """
@@ -186,9 +187,13 @@ class PathFileReader(PathReader):
             dy = (p[1] - p0[1])
             d = math.sqrt((dx * self.canvas_dim[0]) ** 2 + (dy * self.canvas_dim[1]) ** 2)
             needed_points_for_distance = math.ceil(d * self.min_steps_per_mm)
-            for j in range(1, needed_points_for_distance + 1):
-                to_add.append([p0[0] + dx * j / needed_points_for_distance,
-                               p0[1] + dy * j / needed_points_for_distance])
+
+            if needed_points_for_distance == 0:
+                to_add.append(p)
+            else:
+                for j in range(1, needed_points_for_distance + 1):
+                    to_add.append([p0[0] + dx * j / needed_points_for_distance,
+                                   p0[1] + dy * j / needed_points_for_distance])
 
         self._last_point_in_path = p
         self._point_queue += to_add
@@ -306,4 +311,4 @@ class Plotter:
 
 
 plotter = Plotter()
-plotter.plot_file('/projects/paul.txt')
+plotter.plot_file('/projects/yourtext.txt')
