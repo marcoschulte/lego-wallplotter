@@ -10,7 +10,7 @@ class Constants:
     MM_PER_DEGREE = -3825 / 132757  # how much does the rope length change per degree rotation of the motor
     POWER_MAX_PERCENTAGE = 0.9  # use only XX% of available motors power
     MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
-    POINT_REACHED_ACCURACY_MM = 0.8  # how close (in mm) do we need to be at a point to consider it reached
+    POINT_REACHED_ACCURACY_MM = 1  # how close (in mm) do we need to be at a point to consider it reached
 
 
 class Config:
@@ -230,20 +230,34 @@ class PathPlotter:
 
     def plot_path(self, pr: PathReader):
         run = True
+        last_desired_degree = None
+
         while run:
             point = pr.current_point()
             [left_desired_deg, right_desired_deg] = self.geom.get_degree(point)
-            [left_pos, right_pos] = self.mc.get_pos()
+            [left_pos_rel, right_pos_rel] = self.mc.get_pos()
+            [left_pos, right_pos] = [left_pos_rel + self.p0[0], right_pos_rel + self.p0[1]]
 
-            left_error_deg = left_desired_deg - (left_pos + self.p0[0])
-            right_error_deg = right_desired_deg - (right_pos + self.p0[1])
+            left_error_deg = left_desired_deg - left_pos
+            right_error_deg = right_desired_deg - right_pos
 
             error = math.sqrt(left_error_deg ** 2 + right_error_deg ** 2)
 
-            if error < self.point_reached_error_threshold:
+            reached = error < self.point_reached_error_threshold
+            if not reached and last_desired_degree is not None:
+                # test whether we are already past the point but missed the circle we consider reached
+                # vector from last point to current point
+                v_lp_p = [left_desired_deg - last_desired_degree[0], right_desired_deg - last_desired_degree[1]]
+                # vector from current point to plotters position
+                v_pos_p = [left_pos - left_desired_deg, right_pos - right_desired_deg]
+                scalar = v_lp_p[0] * v_pos_p[0] + v_lp_p[1] * v_pos_p[1]
+                reached = scalar >= 0
+
+            if reached:
                 # consider point reached
                 has_next = pr.try_next_point()
                 if has_next:
+                    last_desired_degree = [left_desired_deg, right_desired_deg]
                     continue
                 else:
                     run = False
