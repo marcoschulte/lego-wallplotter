@@ -8,11 +8,13 @@ from svgpathtools import svg2paths, Path, Line, disvg
 
 parser = argparse.ArgumentParser(description='Convert a svg to wallplotter format')
 parser.add_argument('file', type=str, help='svg file to convert')
-parser.add_argument('out', type=str, help='output filename without suffix')
+parser.add_argument('out', type=str, help='output folder', default='')
 # 4 decimals = 1mm precision at 100cm canvas size
 parser.add_argument('-p', '--precision', type=int, default=4, help='how many decimals. Default: 4')
 
 args = parser.parse_args()
+
+f_name, f_ext = os_path.splitext(os_path.basename(args.file))
 
 discontinued_paths, attributes = svg2paths(args.file)
 paths = [continued_path for disc_path in discontinued_paths for continued_path in disc_path.continuous_subpaths()]
@@ -83,7 +85,7 @@ while len(result) > 0:
         result.remove(closest_path)
 
 # write data as python lists
-with open(args.out + '.py', 'w') as filehandle:
+with open(os_path.join(args.out, f_name + '.py'), 'w') as filehandle:
     filehandle.write("paths = [\n")
     for path in result_sorted:
         filehandle.write("    [\n")
@@ -91,7 +93,7 @@ with open(args.out + '.py', 'w') as filehandle:
         filehandle.write("    ],\n")
     filehandle.write("]\n")
 
-with open(args.out + '.txt', 'w') as filehandle:
+with open(os_path.join(args.out, f_name + '.txt'), 'w') as filehandle:
     for path in result_sorted:
         filehandle.writelines("%s,%s\n" % (point[0], point[1]) for point in path)
         filehandle.write("\n")
@@ -106,4 +108,4 @@ for path in result_sorted:
         preview_p.append(Line(complex(p0[0], p0[1]), complex(p1[0], p1[1])))
         p0 = p1
 
-disvg(paths=preview, filename=os_path.join(getcwd(), args.out + '.svg'), margin_size=0)
+disvg(paths=preview, filename=os_path.join(getcwd(), args.out, f_name + '.svg'), margin_size=0)
