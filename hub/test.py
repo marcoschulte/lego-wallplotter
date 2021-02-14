@@ -124,6 +124,9 @@ class PathReader:
     def current_point(self):
         pass
 
+    def progress(self):
+        pass
+
 
 class PathListReader(PathReader):
     def __init__(self, points):
@@ -150,12 +153,23 @@ class PathFileReader(PathReader):
         self._last_point_in_path = None
         self._has_next_path = False
         self._eof = False
+        self._progress = 0
+        self._progress_max = 0
 
     def load_path(self, file):
         self.reset()
+
+        fh = open(file, 'r')
+        fh.seek(0, 2)  # seek to end of file
+        self._progress_max = fh.tell()
+        fh.close()
+
         self._fh = open(file, 'r')
         self._has_next_path = True
         self.__read_next_point()
+
+    def progress(self) -> (int, int):
+        return self._progress, self._progress_max
 
     def __read_next_point(self):
         line = False
@@ -164,9 +178,11 @@ class PathFileReader(PathReader):
         while line is False or len(line) == 0:
             line = self._fh.readline().strip()
             new_tell = self._fh.tell()
+            self._progress = new_tell
             if last_tell == new_tell:
                 # reached eof
                 self._eof = True
+                self._fh.close()
                 return
             else:
                 last_tell = new_tell
@@ -294,7 +310,10 @@ class Plotter:
                 pr.next_path()
                 path_count += 1
 
-                print('Plotting path #%s with start at %s. Moving to start...' % (path_count, pr.current_point()))
+                cur, total = pr.progress()
+                percentage = cur / total
+                print('{:.0%}: Path #{}, start at {}. Moving to start...'
+                      .format(percentage, path_count, pr.current_point()))
                 self.pathPlotter.plot_path(PathListReader([pr.current_point()]))
                 self.mc.brake()
                 # move to start again to compensate drifting
@@ -325,4 +344,4 @@ class Plotter:
 
 
 plotter = Plotter()
-plotter.plot_file('/projects/yourtext.txt')
+# plotter.plot_file('/projects/yourtext.txt')
