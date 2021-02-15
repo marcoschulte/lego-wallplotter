@@ -9,8 +9,10 @@ from svgpathtools import svg2paths, Path, Line, disvg
 parser = argparse.ArgumentParser(description='Convert a svg to wallplotter format')
 parser.add_argument('file', type=str, help='svg file to convert')
 parser.add_argument('out', type=str, help='output folder', default='')
+parser.add_argument('-s', '--sampling', type=float, default=1,
+                    help='Path sampling factor. Decreasing gives rougher corners but decreases filesize. Default: 1')
 # 4 decimals = 1mm precision at 100cm canvas size
-parser.add_argument('-p', '--precision', type=int, default=4, help='how many decimals. Default: 4')
+parser.add_argument('-p', '--precision', type=int, default=4, help='how many decimals in output. Default: 4')
 
 args = parser.parse_args()
 
@@ -19,6 +21,7 @@ f_name, f_ext = os_path.splitext(os_path.basename(args.file))
 discontinued_paths, attributes = svg2paths(args.file)
 paths = [continued_path for disc_path in discontinued_paths for continued_path in disc_path.continuous_subpaths()]
 n_digits = args.precision
+sampling_factor = args.sampling
 
 result = []
 min_x = math.inf
@@ -27,7 +30,7 @@ min_y = math.inf
 max_y = -math.inf
 
 for path in paths:
-    steps = math.ceil(path.length() / 5)
+    steps = math.ceil(path.length() * sampling_factor)
 
     if steps == 0:
         continue
