@@ -7,7 +7,8 @@ import hub
 
 class Constants:
     POWER_PER_DEGREE_PER_SECOND = 1 / 9.3  # factor to convert from desired deg/s to power that needs to be applied
-    MM_PER_DEGREE = -3825 / 132757  # how much does the rope length change per degree rotation of the motor
+    MM_PER_DEGREE_LEFT = -3825 / 132757  # how much does the rope length change per degree rotation of the motor
+    MM_PER_DEGREE_RIGHT = 3825 / 132757  # how much does the rope length change per degree rotation of the motor
     POWER_MAX_PERCENTAGE = 0.9  # use only XX% of available motors power
     MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
     POINT_REACHED_ACCURACY_MM = 1  # how close (in mm) do we need to be at a point to consider it reached
@@ -25,7 +26,9 @@ class Config:
         :return: The canvas' dimension (width, height) in mm
         """
         # return [364, 320]
-        return [334, 334]
+        # return [470, 334]
+        # return [370, 370]
+        return [300, 300]
 
     def get_anchor_distance(self):
         """
@@ -41,33 +44,35 @@ class Config:
 
 
 class Geom:
-    def __init__(self, d, offset, canvas_dim, degree_per_mm):
+    def __init__(self, d, offset, canvas_dim, degree_per_mm_left, degree_per_mm_right):
         """
         Calculates motor positions for coordinates
         :param d: distance d between two anchors
         :param offset: offset [x, y] of the canvas relative to the left anchor
         :param canvas_dim: dimensions of the canvas
-        :param degree_per_mm: how many degrees do the motors need to turn for one mm
+        :param degree_per_mm_left: how many degrees doos the left motors need to turn for one mm extension of the rope
+        :param degree_per_mm_right: how many degrees does the right motors need to turn for one mm extension of the rope
         """
         self.d = d
         self.offset = offset
         self.canvas_dim = canvas_dim
-        self.degree_per_mm = degree_per_mm
+        self.degree_per_mm_left = degree_per_mm_left
+        self.degree_per_mm_right = degree_per_mm_right
 
     def get_degree(self, point):
         x = point[0]
         y = point[1]
         l = math.sqrt(
             (x * self.canvas_dim[0] + self.offset[0]) ** 2 + (
-                    y * self.canvas_dim[1] + self.offset[1]) ** 2) * self.degree_per_mm
+                    y * self.canvas_dim[1] + self.offset[1]) ** 2) * self.degree_per_mm_left
         r = math.sqrt((self.d - self.offset[0] - x * self.canvas_dim[0]) ** 2 + (
-                y * self.canvas_dim[1] + self.offset[1]) ** 2) * self.degree_per_mm
+                y * self.canvas_dim[1] + self.offset[1]) ** 2) * self.degree_per_mm_right
         return [l, r]
 
 
 class PenController:
-    pos_drawing = 0
-    pos_not_drawing = 180
+    pos_drawing = 180
+    pos_not_drawing = 0
     speed = 30
 
     def __init__(self, port):
@@ -236,15 +241,16 @@ class PathFileReader(PathReader):
 
 
 class PathPlotter:
-    point_reached_error_threshold = abs(Constants.POINT_REACHED_ACCURACY_MM / Constants.MM_PER_DEGREE)
+    point_reached_error_threshold = abs(Constants.POINT_REACHED_ACCURACY_MM / Constants.MM_PER_DEGREE_LEFT)
 
     def __init__(self, config: Config, mc: MotorController):
         self.mc = mc
         self.geom = Geom(config.get_anchor_distance(), config.get_canvas_offset(),
-                         config.get_canvas_dim(), (1 / Constants.MM_PER_DEGREE))
+                         config.get_canvas_dim(), (1 / Constants.MM_PER_DEGREE_LEFT),
+                         (1 / Constants.MM_PER_DEGREE_RIGHT))
         self.p0 = self.geom.get_degree(config.get_startpos_relative_to_canvas())
 
-    def plot_path(self, pr: PathReader):
+    def plot_path(self, pr: PathReader, progress_callback=None):
         run = True
         last_desired_degree = None
 
@@ -274,6 +280,8 @@ class PathPlotter:
                 has_next = pr.try_next_point()
                 if has_next:
                     last_desired_degree = [left_desired_deg, right_desired_deg]
+                    if progress_callback is not None:
+                        progress_callback(pr.progress())
                     continue
                 else:
                     run = False
@@ -289,52 +297,94 @@ class PathPlotter:
             self.mc.set_degree_per_second(left_deg_per_s, right_deg_per_s)
 
 
+class ProgressReporter:
+    def __init__(self):
+        self._action = 'Initializing'
+        self._num_path = 1
+        self._percentage = 0
+        self._last_line = None
+        self._start_millis = 0
+
+    def update_action(self, action):
+        self._action = action
+        self.__print()
+
+    def update_num_path(self, num_path):
+        self._num_path = num_path
+        self.__print()
+
+    def update_percentage(self, percentage):
+        self._percentage = percentage
+        self.__print()
+
+    def start(self):
+        self._start_millis = time.ticks_ms()
+
+    def __print(self):
+        num_max_hash = 20
+        num_hash = math.floor(self._percentage * num_max_hash)
+        num_blank = num_max_hash - num_hash
+        progress_bar = '#' * num_hash + ' ' * num_blank
+
+        now = time.ticks_ms()
+        elapsed = now - self._start_millis
+
+        line = '[{}] {:.0%} ({}s) - Path #{} ({})'.format(progress_bar,
+                                                          self._percentage,
+                                                          round(elapsed / 1000),
+                                                          self._num_path,
+                                                          self._action)
+        if line != self._last_line:
+            print('\r\033[K{}'.format(line), end='')
+            self._last_line = line
+
+
 class Plotter:
     def __init__(self):
         self.config = Config()
-        self.pc = PenController(hub.port.D)
-        self.mc = MotorController(hub.port.B, hub.port.F)
+        self.pc = PenController(hub.port.C)
+        self.mc = MotorController(hub.port.B, hub.port.A)
         self.mc.preset()
-        self.pathPlotter = PathPlotter(self.config, self.mc)
+        self.path_plotter = PathPlotter(self.config, self.mc)
+        self.progress_report = ProgressReporter()
 
     def plot_file(self, file):
         try:
             self.pc.stop_drawing()
+            self.progress_report.start()
 
             pr = PathFileReader(self.config.get_canvas_dim())
             pr.load_path(file)
 
-            path_count = 0
+            num_path = 0
 
             while pr.has_next_path():
                 pr.next_path()
-                path_count += 1
+                num_path += 1
+                self.progress_report.update_num_path(num_path)
 
-                cur, total = pr.progress()
-                percentage = cur / total
-                print('{:.0%}: Path #{}, start at {}. Moving to start...'
-                      .format(percentage, path_count, pr.current_point()))
-                self.pathPlotter.plot_path(PathListReader([pr.current_point()]))
+                self.progress_report.update_action('Move to start of path')
+                self.path_plotter.plot_path(PathListReader([pr.current_point()]))
                 self.mc.brake()
-                # move to start again to compensate drifting
-                self.pathPlotter.plot_path(PathListReader([pr.current_point()]))
+                # move to start a second time to compensate drifting
+                self.path_plotter.plot_path(PathListReader([pr.current_point()]))
                 self.mc.brake()
 
-                print('Start plotting of path')
+                self.progress_report.update_action('Plot path')
                 self.pc.start_drawing()
-                self.pathPlotter.plot_path(pr)
+                self.path_plotter.plot_path(pr, self.progress_callback)
                 self.mc.brake()
 
-                print('End plotting of path')
+                self.progress_report.update_action('Path finished')
                 self.pc.stop_drawing()
 
-            print('Moving back to origin')
-            self.pathPlotter.plot_path(PathListReader([[0, 0]]))
+            print('\nMoving back to origin')
+            self.path_plotter.plot_path(PathListReader([[0, 0]]))
             print('Done.')
 
         except BaseException as e:
             self.mc.brake()
-            print("Caught exception", e)
+            print("\nCaught exception", e)
             sys.print_exception(e)
             self.pc.stop_drawing()
             print("Motor pos", self.mc.get_pos())
@@ -342,6 +392,10 @@ class Plotter:
         # stop motors
         self.mc.brake()
 
+    def progress_callback(self, progress: (int, int)):
+        cur, total = progress
+        self.progress_report.update_percentage(cur / total)
+
 
 plotter = Plotter()
-# plotter.plot_file('/projects/yourtext.txt')
+# plotter.plot_file('/projects/cube.txt')
