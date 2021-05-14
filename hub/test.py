@@ -6,12 +6,19 @@ import hub
 
 
 class Constants:
+    MOTOR_LEFT = hub.port.B
+    MOTOR_RIGHT = hub.port.A
+    MOTOR_PEN = hub.port.C
+    MM_PER_DEGREE_LEFT = 3825 / 132757  # how much does the rope length change per degree rotation of the motor
+    MM_PER_DEGREE_RIGHT = -3825 / 132757  # how much does the rope length change per degree rotation of the motor
+    POWER_MAX_PERCENTAGE = 1.0  # use only XX% of available motor power
+    PEN_UP = 0  # absolute position when not drawing
+    PEN_DOWN = 180  # absolute position when drawing
+
     POWER_PER_DEGREE_PER_SECOND = 1 / 9.3  # factor to convert from desired deg/s to power that needs to be applied
-    MM_PER_DEGREE_LEFT = -3825 / 132757  # how much does the rope length change per degree rotation of the motor
-    MM_PER_DEGREE_RIGHT = 3825 / 132757  # how much does the rope length change per degree rotation of the motor
-    POWER_MAX_PERCENTAGE = 0.9  # use only XX% of available motors power
     MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
     POINT_REACHED_ACCURACY_MM = 1  # how close (in mm) do we need to be at a point to consider it reached
+    MAGIC_MOTOR_MODE = [(1, 0), (2, 2), (3, 1), (0, 0)]
 
 
 class Config:
@@ -25,22 +32,29 @@ class Config:
         """
         :return: The canvas' dimension (width, height) in mm
         """
-        # return [364, 320]
-        # return [470, 334]
-        # return [370, 370]
         return [300, 300]
 
     def get_anchor_distance(self):
         """
         :return: The distance between the two rope anchors in mm
         """
-        return 1065
+        return 790
 
     def get_canvas_offset(self):
         """
         :return: The translation of the canvas coordinate system relative to the left anchor
         """
-        return [241, 483]  # left rope: 540mm, right rope: 955mm
+        return self.calc_canvas_offset_from_rope_length(545, 715)
+
+    def calc_canvas_offset_from_rope_length(self, left_mm, right_mm):
+        """
+        :return: calculate the canvas offset from measured rope lengths
+        """
+        a = (math.pi / 2) - math.acos((-right_mm ** 2 + left_mm ** 2 + self.get_anchor_distance() ** 2) / (
+                2 * left_mm * self.get_anchor_distance()))
+        offset_left_mm = math.sin(a) * left_mm
+        offset_right_mm = math.cos(a) * left_mm
+        return [offset_left_mm, offset_right_mm]
 
 
 class Geom:
@@ -71,13 +85,11 @@ class Geom:
 
 
 class PenController:
-    pos_drawing = 180
-    pos_not_drawing = 0
     speed = 30
 
     def __init__(self, port):
         self.port = port
-        self.port.motor.mode([(1, 0), (2, 2), (3, 1), (0, 0)])
+        self.port.motor.mode(Constants.MAGIC_MOTOR_MODE)
 
     def __move_to_pos_if_not_there(self, desired_pos):
         dif = desired_pos - self.port.motor.get()[2]
@@ -90,10 +102,10 @@ class PenController:
             time.sleep(1)
 
     def start_drawing(self):
-        self.__move_to_pos_if_not_there(self.pos_drawing)
+        self.__move_to_pos_if_not_there(Constants.PEN_DOWN)
 
     def stop_drawing(self):
-        self.__move_to_pos_if_not_there(self.pos_not_drawing)
+        self.__move_to_pos_if_not_there(Constants.PEN_UP)
 
 
 class MotorController:
@@ -102,8 +114,8 @@ class MotorController:
         self.port_right = port_right
         self.start_pos_left = 0
         self.start_pos_right = 0
-        self.port_left.motor.mode([(1, 0), (2, 2), (3, 1), (0, 0)])
-        self.port_right.motor.mode([(1, 0), (2, 2), (3, 1), (0, 0)])
+        self.port_left.motor.mode(Constants.MAGIC_MOTOR_MODE)
+        self.port_right.motor.mode(Constants.MAGIC_MOTOR_MODE)
 
     def preset(self):
         [self.start_pos_left, self.start_pos_right] = self.get_pos()
@@ -329,11 +341,12 @@ class ProgressReporter:
         now = time.ticks_ms()
         elapsed = now - self._start_millis
 
-        line = '[{}] {:.0%} ({}s) - Path #{} ({})'.format(progress_bar,
+        line = '[{}] {:.0%} ({}s) - Path #{} ({}) Battery: {}%'.format(progress_bar,
                                                           self._percentage,
                                                           round(elapsed / 1000),
                                                           self._num_path,
-                                                          self._action)
+                                                          self._action,
+                                                          hub.battery.capacity_left())
         if line != self._last_line:
             print('\r\033[K{}'.format(line), end='')
             self._last_line = line
@@ -342,8 +355,8 @@ class ProgressReporter:
 class Plotter:
     def __init__(self):
         self.config = Config()
-        self.pc = PenController(hub.port.C)
-        self.mc = MotorController(hub.port.B, hub.port.A)
+        self.pc = PenController(Constants.MOTOR_PEN)
+        self.mc = MotorController(Constants.MOTOR_LEFT, Constants.MOTOR_RIGHT)
         self.mc.preset()
         self.path_plotter = PathPlotter(self.config, self.mc)
         self.progress_report = ProgressReporter()
