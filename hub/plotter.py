@@ -6,15 +6,20 @@ import hub
 
 
 class Constants:
+    # to which ports are the motors connected
     MOTOR_LEFT = hub.port.B
     MOTOR_RIGHT = hub.port.A
     MOTOR_PEN = hub.port.C
-    MM_PER_DEGREE_LEFT = 3825 / 132757  # how much does the rope length change per degree rotation of the motor
-    MM_PER_DEGREE_RIGHT = -3825 / 132757  # how much does the rope length change per degree rotation of the motor
-    POWER_MAX_PERCENTAGE = 1.0  # use only XX% of available motor power
-    PEN_UP = 0  # absolute position when not drawing
-    PEN_DOWN = 180  # absolute position when drawing
 
+    # rope length change in mm per degree rotation of the motor
+    MM_PER_DEGREE_LEFT = 3825 / 132757
+    MM_PER_DEGREE_RIGHT = -3825 / 132757
+
+    # absolute motor position when drawing / not drawing
+    PEN_UP = 0  # not drawing
+    PEN_DOWN = 180  # drawing
+
+    POWER_MAX_PERCENTAGE = 1.0  # use only XX% of available motor power
     POWER_PER_DEGREE_PER_SECOND = 1 / 9.3  # factor to convert from desired deg/s to power that needs to be applied
     MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
     POINT_REACHED_ACCURACY_MM = 1  # how close (in mm) do we need to be at a point to consider it reached
@@ -24,25 +29,29 @@ class Constants:
 class Config:
     def get_startpos_relative_to_canvas(self):
         """
-        :return: The starting position of the robot on the canvas
+        :return: The starting position of the robot on the canvas. Usually [0,0]
         """
         return [0, 0]
 
     def get_canvas_dim(self):
         """
         :return: The canvas' dimension (width, height) in mm
+        This is how big the plot will be. Also the minimum size of
+        the sheet you are printing on, if you don't want to ruin your wall
         """
         return [300, 300]
 
     def get_anchor_distance(self):
         """
-        :return: The distance between the two rope anchors in mm
+        :return: Distance between the two rope anchors in mm.
         """
         return 790
 
     def get_canvas_offset(self):
         """
-        :return: The translation of the canvas coordinate system relative to the left anchor
+        :return: Translation of the canvas coordinate system relative to the left anchor
+        ELI5: How much do you go right and down from the top left anchor to
+        the top left edge of your sheet
         """
         return self.calc_canvas_offset_from_rope_length(545, 715)
 

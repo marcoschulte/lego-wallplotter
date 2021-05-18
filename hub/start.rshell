@@ -1,3 +1,2 @@
-cp test.py /projects/
-cp ../svgtools/out/bialetti2.txt /projects/path.txt
-repl ~ execfile("/projects/test.py")
+cp plotter.py /projects/
+repl ~ execfile("/projects/plotter.py")
