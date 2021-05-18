@@ -167,7 +167,7 @@ class PathListReader(PathReader):
         return self.points[self.idx]
 
 
-class PathFileReader(PathReader):
+class InterpolatingPathFileReader(PathReader):
     min_steps_per_mm = 1
 
     def __init__(self, canvas_dim):
@@ -288,7 +288,7 @@ class PathPlotter:
 
             reached = error < self.point_reached_error_threshold
             if not reached and last_desired_degree is not None:
-                # test whether we are already past the point but missed the circle we consider reached
+                # test whether we already passed the point but missed the circle we consider reached:
                 # vector from last point to current point
                 v_lp_p = [left_desired_deg - last_desired_degree[0], right_desired_deg - last_desired_degree[1]]
                 # vector from current point to plotters position
@@ -350,12 +350,9 @@ class ProgressReporter:
         now = time.ticks_ms()
         elapsed = now - self._start_millis
 
-        line = '[{}] {:.0%} ({}s) - Path #{} ({}) Battery: {}%'.format(progress_bar,
-                                                          self._percentage,
-                                                          round(elapsed / 1000),
-                                                          self._num_path,
-                                                          self._action,
-                                                          hub.battery.capacity_left())
+        line = '[{}] {:.0%} ({}s) - Path #{} ({}) Battery: {}%'.format(
+            progress_bar, self._percentage, round(elapsed / 1000), self._num_path, self._action,
+            hub.battery.capacity_left())
         if line != self._last_line:
             print('\r\033[K{}'.format(line), end='')
             self._last_line = line
@@ -375,7 +372,7 @@ class Plotter:
             self.pc.stop_drawing()
             self.progress_report.start()
 
-            pr = PathFileReader(self.config.get_canvas_dim())
+            pr = InterpolatingPathFileReader(self.config.get_canvas_dim())
             pr.load_path(file)
 
             num_path = 0
