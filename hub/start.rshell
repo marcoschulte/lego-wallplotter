@@ -1,2 +1,1 @@
-cp plotter.py /projects/
-repl ~ execfile("/projects/plotter.py")
+repl ~ execfile('/wallplotter/plotter.py')
