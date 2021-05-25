@@ -265,7 +265,7 @@ class InterpolatingPathFileReader(PathReader):
 
 
 class PathPlotter:
-    point_reached_error_threshold = abs(Constants.POINT_REACHED_ACCURACY_MM / Constants.MM_PER_DEGREE_LEFT)
+    point_reached_error_threshold_degree = abs(Constants.POINT_REACHED_ACCURACY_MM / Constants.MM_PER_DEGREE_LEFT)
 
     def __init__(self, config: Config, mc: MotorController):
         self.mc = mc
@@ -289,7 +289,7 @@ class PathPlotter:
 
             error = math.sqrt(left_error_deg ** 2 + right_error_deg ** 2)
 
-            reached = error < self.point_reached_error_threshold
+            reached = error < self.point_reached_error_threshold_degree
             if not reached and last_desired_degree is not None:
                 # test whether we already passed the point but missed the circle we consider reached:
                 # vector from last point to current point
@@ -359,6 +359,7 @@ class Plotter:
         self.mc.preset()
         self.path_plotter = PathPlotter(self.config, self.mc)
         self.progress_report = ProgressReporter()
+        self.exception_motor_pos = None
 
     def plot_file(self, file):
         try:
@@ -400,7 +401,8 @@ class Plotter:
             print("\nCaught exception", e)
             sys.print_exception(e)
             self.pc.stop_drawing()
-            print("Motor pos", self.mc.get_pos())
+            self.exception_motor_pos = self.mc.get_pos()
+            print("Motor pos", self.exception_motor_pos)
 
         # stop motors
         self.mc.brake()
@@ -408,6 +410,11 @@ class Plotter:
     def progress_callback(self, progress: (int, int)):
         cur, total = progress
         self.progress_report.update_percentage(cur / total)
+
+    def return_to_origin_after_exception(self):
+        [left, right] = self.exception_motor_pos
+        Constants.MOTOR_LEFT.motor.run_for_degrees(left, math.copysign(100, left * -1))
+        Constants.MOTOR_RIGHT.motor.run_for_degrees(right, math.copysign(100, right * -1))
 
 
 plotter = Plotter()
