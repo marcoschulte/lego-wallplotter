@@ -1,3 +1,4 @@
+import gc
 import math
 import sys
 import time
@@ -180,15 +181,16 @@ class InterpolatingPathFileReader(PathReader):
         EOF = 3
 
     min_steps_per_mm = 1
+    buffer_size = 35000
 
     def __init__(self, canvas_dim, file):
         self._canvas_dim = canvas_dim
         self._state = InterpolatingPathFileReader.State.UNKNOWN
-        self._buffer = []
+        self._buffer = [[0, 0]] * InterpolatingPathFileReader.buffer_size
         self._buffer_pointer = -1
+        self._buffer_elem_count = 0
+        self._tell_max = None
         self._fh = None
-        self._progress = 0
-        self._progress_max = 1
 
         self._open_file(file)
 
@@ -212,7 +214,7 @@ class InterpolatingPathFileReader(PathReader):
         return self._state is InterpolatingPathFileReader.State.BUF_AVAIL
 
     def next_point(self) -> bool:
-        if self._buffer_pointer < len(self._buffer) - 1:
+        if self._buffer_pointer < self._buffer_elem_count - 1:
             self._buffer_pointer += 1
             return True
         else:
@@ -220,24 +222,26 @@ class InterpolatingPathFileReader(PathReader):
             return False
 
     def current_point(self):
+        if self._buffer_pointer < 0:
+            raise Exception('Invalid call to current point. Call next_point first')
+
         return self._buffer[self._buffer_pointer]
 
     def _read(self):
         assert self._state is InterpolatingPathFileReader.State.UNKNOWN
 
-        points = []
+        self._buffer_elem_count = 0
         blank: bool
         eof: bool
         while True:
             point, blank, eof = self._read_next_point()
             if point is not None:
-                self._append_interpolating(points, point)
+                self._append_interpolating(point)
             elif blank or eof:
                 # stop reading at blank line (new path) or eof
                 break
 
-        if len(points) > 0:
-            self._buffer = points
+        if self._buffer_elem_count > 0:
             self._buffer_pointer = -1
             self._state = InterpolatingPathFileReader.State.BUF_AVAIL
         elif eof:
@@ -273,25 +277,25 @@ class InterpolatingPathFileReader(PathReader):
         p = [float(x) for x in line.split(",")]
         return p, False, False
 
-    def _append_interpolating(self, points, p):
-        to_add = []
-        if len(points) == 0:
-            to_add.append(p)
+    def _append_interpolating(self, p):
+        if self._buffer_elem_count == 0:
+            self._buffer[self._buffer_elem_count] = p
+            self._buffer_elem_count += 1
         else:
-            p0 = points[-1]
+            p0 = self._buffer[self._buffer_elem_count - 1]
             dx = (p[0] - p0[0])
             dy = (p[1] - p0[1])
             d = math.sqrt((dx * self._canvas_dim[0]) ** 2 + (dy * self._canvas_dim[1]) ** 2)
             needed_points_for_distance = math.ceil(d * self.min_steps_per_mm)
 
             if needed_points_for_distance == 0:
-                to_add.append(p)
+                self._buffer[self._buffer_elem_count] = p
+                self._buffer_elem_count += 1
             else:
                 for j in range(1, needed_points_for_distance + 1):
-                    to_add.append([p0[0] + dx * j / needed_points_for_distance,
-                                   p0[1] + dy * j / needed_points_for_distance])
-
-        points += to_add
+                    self._buffer[self._buffer_elem_count] = [p0[0] + dx * j / needed_points_for_distance,
+                                                             p0[1] + dy * j / needed_points_for_distance]
+                    self._buffer_elem_count += 1
 
     def progress(self) -> (int, int):
         return self._progress, self._progress_max
@@ -376,9 +380,9 @@ class ProgressReporter:
         now = time.ticks_ms()
         elapsed = now - self._start_millis
 
-        line = '[{}] {:.0%} ({}s) - Path #{}, Battery: {}%'.format(
+        line = '[{}] {:.0%} ({}s) - Path #{}, battery {}%, mem free {}'.format(
             progress_bar, self._percentage, round(elapsed / 1000), self._num_path,
-            hub.battery.capacity_left())
+            hub.battery.capacity_left(), gc.mem_free())
         print('\r\033[K{}'.format(line), end='')
 
 
@@ -402,26 +406,27 @@ class Plotter:
             num_path = 0
 
             while pr.next_path():
-                num_path += 1
-                self.progress_report.update_num_path(num_path)
-                cur, total = pr.progress()
-                self.progress_report.update_percentage(cur / total)
-                self.progress_report.print()  # print progress only if not moving as it causes delay in control loop
+                if pr.next_point():
+                    num_path += 1
+                    self.progress_report.update_num_path(num_path)
+                    cur, total = pr.progress()
+                    self.progress_report.update_percentage(cur / total)
+                    self.progress_report.print()  # print progress only if not moving as it causes delay in control loop
 
-                # move to start of path
-                self.path_plotter.plot_path(PathListReader([pr.current_point()]))
-                self.mc.brake()
-                # move to start a second time to compensate possible drift while stopping
-                self.path_plotter.plot_path(PathListReader([pr.current_point()]))
-                self.mc.brake()
+                    # move to start of path
+                    self.path_plotter.plot_path(PathListReader([pr.current_point()]))
+                    self.mc.brake()
+                    # move to start a second time to compensate possible drift while stopping
+                    self.path_plotter.plot_path(PathListReader([pr.current_point()]))
+                    self.mc.brake()
 
-                # plot path
-                self.pc.start_drawing()
-                self.path_plotter.plot_path(pr)
+                    # plot path
+                    self.pc.start_drawing()
+                    self.path_plotter.plot_path(pr)
 
-                # path finished
-                self.mc.brake()
-                self.pc.stop_drawing()
+                    # path finished
+                    self.mc.brake()
+                    self.pc.stop_drawing()
 
             print('\nMoving back to origin')
             self.path_plotter.plot_path(PathListReader([[0, 0]]))
