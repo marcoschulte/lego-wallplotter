@@ -147,10 +147,10 @@ class MotorController:
 
 
 class PathReader:
-    def try_next_point(self):
+    def next_point(self) -> bool:
         pass
 
-    def current_point(self):
+    def current_point(self) -> []:
         pass
 
     def progress(self):
@@ -162,75 +162,126 @@ class PathListReader(PathReader):
         self.points = points
         self.idx = 0
 
-    def try_next_point(self):
+    def next_point(self):
         self.idx += 1
         return self.idx < len(self.points) - 1
 
     def current_point(self):
         return self.points[self.idx]
 
+    def progress(self):
+        return 0, 1
+
 
 class InterpolatingPathFileReader(PathReader):
+    class State:
+        UNKNOWN = 1
+        BUF_AVAIL = 2
+        EOF = 3
+
     min_steps_per_mm = 1
 
-    def __init__(self, canvas_dim):
-        self.canvas_dim = canvas_dim
-        self.reset()
-
-    def reset(self):
-        self._point_queue = []
-        self._last_point_in_path = None
-        self._has_next_path = False
-        self._eof = False
+    def __init__(self, canvas_dim, file):
+        self._canvas_dim = canvas_dim
+        self._state = InterpolatingPathFileReader.State.UNKNOWN
+        self._buffer = []
+        self._buffer_pointer = -1
+        self._fh = None
         self._progress = 0
-        self._progress_max = 0
+        self._progress_max = 1
 
-    def load_path(self, file):
-        self.reset()
+        self._open_file(file)
 
+    def _open_file(self, file):
         fh = open(file, 'r')
         fh.seek(0, 2)  # seek to end of file
         self._progress_max = fh.tell()
         fh.close()
 
         self._fh = open(file, 'r')
-        self._has_next_path = True
-        self.__read_next_point()
 
-    def progress(self) -> (int, int):
-        return self._progress, self._progress_max
+    def next_path(self) -> bool:
+        if self._state is InterpolatingPathFileReader.State.EOF:
+            return False
 
-    def __read_next_point(self):
-        line = False
+        if self._state is InterpolatingPathFileReader.State.BUF_AVAIL:
+            raise Exception("Buffer not exhausted")
+
+        self._read()
+
+        return self._state is InterpolatingPathFileReader.State.BUF_AVAIL
+
+    def next_point(self) -> bool:
+        if self._buffer_pointer < len(self._buffer) - 1:
+            self._buffer_pointer += 1
+            return True
+        else:
+            self._state = InterpolatingPathFileReader.State.UNKNOWN
+            return False
+
+    def current_point(self):
+        return self._buffer[self._buffer_pointer]
+
+    def _read(self):
+        assert self._state is InterpolatingPathFileReader.State.UNKNOWN
+
+        points = []
+        blank: bool
+        eof: bool
+        while True:
+            point, blank, eof = self._read_next_point()
+            if point is not None:
+                self._append_interpolating(points, point)
+            elif blank or eof:
+                # stop reading at blank line (new path) or eof
+                break
+
+        if len(points) > 0:
+            self._buffer = points
+            self._buffer_pointer = -1
+            self._state = InterpolatingPathFileReader.State.BUF_AVAIL
+        elif eof:
+            self._state = InterpolatingPathFileReader.State.EOF
+            self._fh.close()
+        else:
+            assert blank
+            self._read()
+
+    def _read_next_point(self) -> ([], bool, bool):
+        """
+        Either one is set
+        :return: point, empty line, eof
+        """
+        line = None
         last_tell = self._fh.tell()
 
-        while line is False or len(line) == 0:
+        while line is None or len(line) == 0:
             line = self._fh.readline().strip()
             new_tell = self._fh.tell()
             self._progress = new_tell
             if last_tell == new_tell:
                 # reached eof
                 self._eof = True
-                self._fh.close()
-                return
+                return None, False, True
             else:
                 last_tell = new_tell
 
             if len(line) == 0:
                 # start of new path or eof if linebreak is at end of file
-                self._last_point_in_path = None
-                self._has_next_path = True
+                return None, True, False
 
         p = [float(x) for x in line.split(",")]
+        return p, False, False
 
+    def _append_interpolating(self, points, p):
         to_add = []
-        if self._last_point_in_path is None:
+        if len(points) == 0:
             to_add.append(p)
         else:
-            p0 = self._last_point_in_path
+            p0 = points[-1]
             dx = (p[0] - p0[0])
             dy = (p[1] - p0[1])
-            d = math.sqrt((dx * self.canvas_dim[0]) ** 2 + (dy * self.canvas_dim[1]) ** 2)
+            d = math.sqrt((dx * self._canvas_dim[0]) ** 2 + (dy * self._canvas_dim[1]) ** 2)
             needed_points_for_distance = math.ceil(d * self.min_steps_per_mm)
 
             if needed_points_for_distance == 0:
@@ -240,28 +291,10 @@ class InterpolatingPathFileReader(PathReader):
                     to_add.append([p0[0] + dx * j / needed_points_for_distance,
                                    p0[1] + dy * j / needed_points_for_distance])
 
-        self._last_point_in_path = p
-        self._point_queue += to_add
+        points += to_add
 
-    def current_point(self):
-        return self._point_queue[0]
-
-    def has_next_path(self):
-        return self._has_next_path and self._eof is False
-
-    def try_next_point(self):
-        self._point_queue.pop(0)
-
-        if len(self._point_queue) == 0 and self._eof is False:
-            self.__read_next_point()
-
-        if self._has_next_path is True or self._eof is True:
-            return False
-
-        return len(self._point_queue) > 0
-
-    def next_path(self):
-        self._has_next_path = False
+    def progress(self) -> (int, int):
+        return self._progress, self._progress_max
 
 
 class PathPlotter:
@@ -274,7 +307,7 @@ class PathPlotter:
                          (1 / Constants.MM_PER_DEGREE_RIGHT))
         self.p0 = self.geom.get_degree(config.get_startpos_relative_to_canvas())
 
-    def plot_path(self, pr: PathReader, progress_callback=None):
+    def plot_path(self, pr: PathReader):
         run = True
         last_desired_degree = None
 
@@ -301,11 +334,9 @@ class PathPlotter:
 
             if reached:
                 # consider point reached
-                has_next = pr.try_next_point()
+                has_next = pr.next_point()
                 if has_next:
                     last_desired_degree = [left_desired_deg, right_desired_deg]
-                    if progress_callback is not None:
-                        progress_callback(pr.progress())
                     continue
                 else:
                     run = False
@@ -366,15 +397,15 @@ class Plotter:
             self.pc.stop_drawing()
             self.progress_report.start()
 
-            pr = InterpolatingPathFileReader(self.config.get_canvas_dim())
-            pr.load_path(file)
+            pr = InterpolatingPathFileReader(self.config.get_canvas_dim(), file)
 
             num_path = 0
 
-            while pr.has_next_path():
-                pr.next_path()
+            while pr.next_path():
                 num_path += 1
                 self.progress_report.update_num_path(num_path)
+                cur, total = pr.progress()
+                self.progress_report.update_percentage(cur / total)
                 self.progress_report.print()  # print progress only if not moving as it causes delay in control loop
 
                 # move to start of path
@@ -386,7 +417,7 @@ class Plotter:
 
                 # plot path
                 self.pc.start_drawing()
-                self.path_plotter.plot_path(pr, self.progress_callback)
+                self.path_plotter.plot_path(pr)
 
                 # path finished
                 self.mc.brake()
@@ -406,10 +437,6 @@ class Plotter:
 
         # stop motors
         self.mc.brake()
-
-    def progress_callback(self, progress: (int, int)):
-        cur, total = progress
-        self.progress_report.update_percentage(cur / total)
 
     def return_to_origin_after_exception(self):
         [left, right] = self.exception_motor_pos
