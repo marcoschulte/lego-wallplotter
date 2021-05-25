@@ -6,6 +6,10 @@ from os import getcwd, path as os_path
 
 from svgpathtools import svg2paths, Path, Line, disvg
 
+def print_status(step, title):
+    line = '[{}/7] {}'.format(step, title)
+    print('\r\033[K{}'.format(line), end='')
+
 parser = argparse.ArgumentParser(description='Convert a svg to wallplotter format')
 parser.add_argument('file', type=str, help='svg file to convert')
 parser.add_argument('out', type=str, help='output folder', default='')
@@ -18,6 +22,8 @@ args = parser.parse_args()
 
 f_name, f_ext = os_path.splitext(os_path.basename(args.file))
 
+print_status(1, "Parsing file {}".format(args.file))
+
 discontinued_paths, attributes = svg2paths(args.file)
 paths = [continued_path for disc_path in discontinued_paths for continued_path in disc_path.continuous_subpaths()]
 n_digits = args.precision
@@ -29,7 +35,10 @@ max_x = -math.inf
 min_y = math.inf
 max_y = -math.inf
 
-for path in paths:
+
+for index, path in enumerate(paths):
+    print_status(2, "Parsing path {}/{}".format(index, len(paths)))
+
     steps = math.ceil(path.length() * sampling_factor)
 
     if steps == 0:
@@ -64,7 +73,8 @@ for path in paths:
             path_result.append([x, y])
 
 # rescale to [0, 1]
-for path in result:
+for index, path in enumerate(result):
+    print_status(3, "Rescale path {}/{}".format(index, len(result)))
     for p in path:
         p[0] = round((p[0] - min_x) / max_x, n_digits)
         p[1] = round((p[1] - min_y) / max_y, n_digits)
@@ -72,6 +82,8 @@ for path in result:
 # sort paths by distance between end and start
 result_sorted = []
 while len(result) > 0:
+    print_status(4, "Sort paths, {} left".format(len(result)))
+
     if len(result_sorted) == 0:
         result_sorted.append(result.pop())
     else:
@@ -88,6 +100,7 @@ while len(result) > 0:
         result.remove(closest_path)
 
 # write data as python lists
+print_status(5, "Write python file")
 with open(os_path.join(args.out, f_name + '.py'), 'w') as filehandle:
     filehandle.write("paths = [\n")
     for path in result_sorted:
@@ -96,6 +109,8 @@ with open(os_path.join(args.out, f_name + '.py'), 'w') as filehandle:
         filehandle.write("    ],\n")
     filehandle.write("]\n")
 
+# writer plotter file
+print_status(6, "Write plotter file")
 with open(os_path.join(args.out, f_name + '.txt'), 'w') as filehandle:
     for path in result_sorted:
         filehandle.writelines("%s,%s\n" % (point[0], point[1]) for point in path)
@@ -103,6 +118,7 @@ with open(os_path.join(args.out, f_name + '.txt'), 'w') as filehandle:
 
 # create preview svg
 preview = []
+print_status(7, "Write preview file")
 for path in result_sorted:
     preview_p = Path()
     preview.append(preview_p)
