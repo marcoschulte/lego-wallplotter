@@ -6,14 +6,17 @@ import hub
 
 
 class Constants:
-    # to which ports are the motors connected
+    # which ports are the motors connected to
     MOTOR_LEFT = hub.port.B
     MOTOR_RIGHT = hub.port.A
     MOTOR_PEN = hub.port.C
 
     # rope length change in mm per degree rotation of the motor
-    MM_PER_DEGREE_LEFT = 3825 / 132757
-    MM_PER_DEGREE_RIGHT = -3825 / 132757
+    # number should be:
+    # * positive, if motor position value increases when retracting rope,
+    # * negative, if motor position value increases when rope extends
+    MM_PER_DEGREE_LEFT = 3760 / 137816
+    MM_PER_DEGREE_RIGHT = -3760 / 137816
 
     # absolute motor position when drawing / not drawing
     PEN_UP = 0  # not drawing
@@ -39,7 +42,7 @@ class Config:
         This is how big the plot will be. Also the minimum size of
         the sheet you are printing on, if you don't want to ruin your wall
         """
-        return [300, 300]
+        return [500, 321]
 
     def get_anchor_distance(self):
         """
@@ -53,7 +56,7 @@ class Config:
         ELI5: How much do you go right and down from the top left anchor to
         the top left edge of your sheet
         """
-        return self.calc_canvas_offset_from_rope_length(545, 715)
+        return self.calc_canvas_offset_from_rope_length(530, 820)
 
     def calc_canvas_offset_from_rope_length(self, left_mm, right_mm):
         """
@@ -320,28 +323,20 @@ class PathPlotter:
 
 class ProgressReporter:
     def __init__(self):
-        self._action = 'Initializing'
         self._num_path = 1
         self._percentage = 0
-        self._last_line = None
         self._start_millis = 0
-
-    def update_action(self, action):
-        self._action = action
-        self.__print()
 
     def update_num_path(self, num_path):
         self._num_path = num_path
-        self.__print()
 
     def update_percentage(self, percentage):
         self._percentage = percentage
-        self.__print()
 
     def start(self):
         self._start_millis = time.ticks_ms()
 
-    def __print(self):
+    def print(self):
         num_max_hash = 20
         num_hash = math.floor(self._percentage * num_max_hash)
         num_blank = num_max_hash - num_hash
@@ -350,12 +345,10 @@ class ProgressReporter:
         now = time.ticks_ms()
         elapsed = now - self._start_millis
 
-        line = '[{}] {:.0%} ({}s) - Path #{} ({}) Battery: {}%'.format(
-            progress_bar, self._percentage, round(elapsed / 1000), self._num_path, self._action,
+        line = '[{}] {:.0%} ({}s) - Path #{}, Battery: {}%'.format(
+            progress_bar, self._percentage, round(elapsed / 1000), self._num_path,
             hub.battery.capacity_left())
-        if line != self._last_line:
-            print('\r\033[K{}'.format(line), end='')
-            self._last_line = line
+        print('\r\033[K{}'.format(line), end='')
 
 
 class Plotter:
@@ -381,20 +374,21 @@ class Plotter:
                 pr.next_path()
                 num_path += 1
                 self.progress_report.update_num_path(num_path)
+                self.progress_report.print()  # print progress only if not moving as it causes delay in control loop
 
-                self.progress_report.update_action('Move to start of path')
+                # move to start of path
                 self.path_plotter.plot_path(PathListReader([pr.current_point()]))
                 self.mc.brake()
-                # move to start a second time to compensate drifting
+                # move to start a second time to compensate possible drift while stopping
                 self.path_plotter.plot_path(PathListReader([pr.current_point()]))
                 self.mc.brake()
 
-                self.progress_report.update_action('Plot path')
+                # plot path
                 self.pc.start_drawing()
                 self.path_plotter.plot_path(pr, self.progress_callback)
-                self.mc.brake()
 
-                self.progress_report.update_action('Path finished')
+                # path finished
+                self.mc.brake()
                 self.pc.stop_drawing()
 
             print('\nMoving back to origin')
@@ -417,4 +411,4 @@ class Plotter:
 
 
 plotter = Plotter()
-# plotter.plot_file('/projects/cube.txt')
+# plotter.plot_file('/wallplotter/cube.txt')
