@@ -389,7 +389,7 @@ class Plotter:
         self.progress_report = ProgressReporter()
         self.exception_motor_pos = None
 
-    def plot_file(self, file):
+    def plot_file(self, file, skip_n_paths=0):
         try:
             self.pc.stop_drawing()
             self.progress_report.start()
@@ -397,6 +397,12 @@ class Plotter:
             pr = InterpolatingPathFileReader(self.config.get_canvas_dim(), file)
 
             num_path = 0
+
+            while num_path < skip_n_paths and pr.next_path():
+                num_path += 1
+                self.progress_report.print(num_path, 0)
+                while pr.next_point():
+                    pass
 
             while pr.next_path():
                 if pr.next_point():
