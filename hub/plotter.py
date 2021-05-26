@@ -31,12 +31,6 @@ class Constants:
 
 
 class Config:
-    def get_startpos_relative_to_canvas(self):
-        """
-        :return: The starting position of the robot on the canvas. Usually [0,0]
-        """
-        return [0, 0]
-
     def get_canvas_dim(self):
         """
         :return: The canvas' dimension (width, height) in mm
@@ -309,7 +303,7 @@ class PathPlotter:
         self.geom = Geom(config.get_anchor_distance(), config.get_canvas_offset(),
                          config.get_canvas_dim(), (1 / Constants.MM_PER_DEGREE_LEFT),
                          (1 / Constants.MM_PER_DEGREE_RIGHT))
-        self.p0 = self.geom.get_degree(config.get_startpos_relative_to_canvas())
+        self.p0 = self.geom.get_degree([0, 0])
 
     def plot_path(self, pr: PathReader):
         run = True
