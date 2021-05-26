@@ -306,10 +306,9 @@ class PathPlotter:
         self.p0 = self.geom.get_degree([0, 0])
 
     def plot_path(self, pr: PathReader):
-        run = True
         last_desired_degree = None
 
-        while run:
+        while True:
             point = pr.current_point()
             [left_desired_deg, right_desired_deg] = self.geom.get_degree(point)
             [left_pos_rel, right_pos_rel] = self.mc.get_pos()
@@ -337,8 +336,8 @@ class PathPlotter:
                     last_desired_degree = [left_desired_deg, right_desired_deg]
                     continue
                 else:
-                    run = False
-                    continue
+                    # path finished
+                    return
 
             if abs(left_error_deg) > abs(right_error_deg):
                 left_deg_per_s = math.copysign(Constants.MAX_DEG_PER_S, left_error_deg)
