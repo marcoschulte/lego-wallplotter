@@ -351,22 +351,14 @@ class PathPlotter:
 
 class ProgressReporter:
     def __init__(self):
-        self._num_path = 1
-        self._percentage = 0
         self._start_millis = 0
-
-    def update_num_path(self, num_path):
-        self._num_path = num_path
-
-    def update_percentage(self, percentage):
-        self._percentage = percentage
 
     def start(self):
         self._start_millis = time.ticks_ms()
 
-    def print(self):
+    def print(self, num_path, percentage):
         num_max_hash = 20
-        num_hash = math.floor(self._percentage * num_max_hash)
+        num_hash = math.floor(percentage * num_max_hash)
         num_blank = num_max_hash - num_hash
         progress_bar = '#' * num_hash + ' ' * num_blank
 
@@ -374,7 +366,7 @@ class ProgressReporter:
         elapsed = now - self._start_millis
 
         line = '[{}] {:.0%} ({}s) - Path #{}, battery {}%, mem free {}'.format(
-            progress_bar, self._percentage, round(elapsed / 1000), self._num_path,
+            progress_bar, percentage, round(elapsed / 1000), num_path,
             hub.battery.capacity_left(), gc.mem_free())
         print('\r\033[K{}'.format(line), end='')
 
@@ -396,6 +388,7 @@ class Plotter:
 
             pr = InterpolatingPathFileReader(self.config.get_canvas_dim(), file)
 
+            last_point = None
             num_path = 0
 
             while num_path < skip_n_paths and pr.next_path():
@@ -407,17 +400,19 @@ class Plotter:
             while pr.next_path():
                 if pr.next_point():
                     num_path += 1
-                    self.progress_report.update_num_path(num_path)
                     cur, total = pr.progress()
-                    self.progress_report.update_percentage(cur / total)
-                    self.progress_report.print()  # print progress only if not moving as it causes delay in control loop
+                    # print progress only if not moving as it causes delay in control loop
+                    self.progress_report.print(num_path, cur / total)
 
-                    # move to start of path
-                    self.path_plotter.plot_path(PathListReader([pr.current_point()]))
-                    self.mc.brake()
-                    # move to start a second time to compensate possible drift while stopping
-                    self.path_plotter.plot_path(PathListReader([pr.current_point()]))
-                    self.mc.brake()
+                    if last_point is None or not self.is_point_reached(last_point, pr.current_point()):
+                        # next path does not start at same position, move there
+                        self.pc.stop_drawing()
+                        # move to start of path
+                        self.path_plotter.plot_path(PathListReader([pr.current_point()]))
+                        self.mc.brake()
+                        # move to start a second time to compensate possible drift while stopping
+                        self.path_plotter.plot_path(PathListReader([pr.current_point()]))
+                        self.mc.brake()
 
                     # plot path
                     self.pc.start_drawing()
@@ -425,8 +420,9 @@ class Plotter:
 
                     # path finished
                     self.mc.brake()
-                    self.pc.stop_drawing()
+                    last_point = pr.current_point()
 
+            self.pc.stop_drawing()
             print('\nMoving back to origin')
             self.path_plotter.plot_path(PathListReader([[0, 0]]))
             print('Done.')
@@ -442,10 +438,15 @@ class Plotter:
         # stop motors
         self.mc.brake()
 
+    def is_point_reached(self, p0, p1):
+        x = (p0[0] - p1[0]) * self.config.get_canvas_dim()[0]
+        y = (p0[1] - p1[1]) * self.config.get_canvas_dim()[1]
+        return math.sqrt(x ** 2 + y ** 2) < Constants.POINT_REACHED_ACCURACY_MM
+
     def return_to_origin_after_exception(self):
         [left, right] = self.exception_motor_pos
-        Constants.MOTOR_LEFT.motor.run_for_degrees(left, math.copysign(100, left * -1))
-        Constants.MOTOR_RIGHT.motor.run_for_degrees(right, math.copysign(100, right * -1))
+        Constants.MOTOR_LEFT.motor.run_for_degrees(left, math.copysign(35, left * -1))
+        Constants.MOTOR_RIGHT.motor.run_for_degrees(right, math.copysign(35, right * -1))
 
 
 plotter = Plotter()
