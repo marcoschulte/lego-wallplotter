@@ -23,10 +23,15 @@ class Constants:
     PEN_UP = 0  # not drawing
     PEN_DOWN = 180  # drawing
 
+    # not necessary to change:
     POWER_MAX_PERCENTAGE = 1.0  # use only XX% of available motor power
     POWER_PER_DEGREE_PER_SECOND = 1 / 9.3  # factor to convert from desired deg/s to power that needs to be applied
     MAX_DEG_PER_S = 100 / POWER_PER_DEGREE_PER_SECOND * POWER_MAX_PERCENTAGE
     POINT_REACHED_ACCURACY_MM = 1  # how close (in mm) do we need to be at a point to consider it reached
+    PEN_MOTOR_SPEED = 30  # How fast to move pen up/down
+    INTERPOLATION_MIN_STEPS_PER_MM = 0.5  # how many points to interpolate between two points of a path. Might be
+    # necessary to decrease for large canvas dimensions to fit into buffer/ram
+    PATH_READER_BUF_SIZE = 35000  # buffer size for path reader to reserve
     MAGIC_MOTOR_MODE = [(1, 0), (2, 2), (3, 1), (0, 0)]
 
 
@@ -34,16 +39,16 @@ class Config:
     def get_canvas_dim(self):
         """
         :return: The canvas' dimension (width, height) in mm
-        This is how big the plot will be. Also the minimum size of
+        This is how big the plot will be. This should also be the minimum size of
         the sheet you are printing on, if you don't want to ruin your wall
         """
-        return [500, 321]
+        return [850, 561]
 
     def get_anchor_distance(self):
         """
         :return: Distance between the two rope anchors in mm.
         """
-        return 790
+        return 1272
 
     def get_canvas_offset(self):
         """
@@ -51,7 +56,7 @@ class Config:
         ELI5: How much do you go right and down from the top left anchor to
         the top left edge of your sheet
         """
-        return self.calc_canvas_offset_from_rope_length(530, 820)
+        return self.calc_canvas_offset_from_rope_length(637, 1217)
 
     def calc_canvas_offset_from_rope_length(self, left_mm, right_mm):
         """
@@ -92,8 +97,6 @@ class Geom:
 
 
 class PenController:
-    speed = 30
-
     def __init__(self, port):
         self.port = port
         self.port.motor.mode(Constants.MAGIC_MOTOR_MODE)
@@ -105,7 +108,7 @@ class PenController:
         if dif > 180:
             dif -= 360
         if abs(dif) > 5:
-            self.port.motor.run_for_degrees(abs(dif), round(math.copysign(self.speed, dif)))
+            self.port.motor.run_for_degrees(abs(dif), round(math.copysign(Constants.PEN_MOTOR_SPEED, dif)))
             time.sleep(1)
 
     def start_drawing(self):
@@ -174,13 +177,10 @@ class InterpolatingPathFileReader(PathReader):
         BUF_AVAIL = 2
         EOF = 3
 
-    min_steps_per_mm = 1
-    buffer_size = 35000
-
     def __init__(self, canvas_dim, file):
         self._canvas_dim = canvas_dim
         self._state = InterpolatingPathFileReader.State.UNKNOWN
-        self._buffer = [[0, 0]] * InterpolatingPathFileReader.buffer_size
+        self._buffer = [[0, 0]] * Constants.PATH_READER_BUF_SIZE
         self._buffer_pointer = -1
         self._buffer_elem_count = 0
         self._tell_max = None
@@ -280,7 +280,7 @@ class InterpolatingPathFileReader(PathReader):
             dx = (p[0] - p0[0])
             dy = (p[1] - p0[1])
             d = math.sqrt((dx * self._canvas_dim[0]) ** 2 + (dy * self._canvas_dim[1]) ** 2)
-            needed_points_for_distance = math.ceil(d * self.min_steps_per_mm)
+            needed_points_for_distance = math.ceil(d * Constants.INTERPOLATION_MIN_STEPS_PER_MM)
 
             if needed_points_for_distance == 0:
                 self._buffer[self._buffer_elem_count] = p
@@ -450,4 +450,4 @@ class Plotter:
 
 
 plotter = Plotter()
-# plotter.plot_file('/wallplotter/cube.txt')
+# plotter.plot_file('/plotter/cube.txt')

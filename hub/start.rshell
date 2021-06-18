@@ -1,1 +1,1 @@
-repl ~ execfile('/wallplotter/plotter.py')
+repl ~ execfile('/plotter/plotter.py')
